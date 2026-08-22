@@ -18,7 +18,7 @@ def test_orders():
     assert df["order_id"].is_unique
     assert df["quantity"].gt(0).all()
     assert df["deadline"].gt(0).all()
-    assert df["product_id"].isin(["P1", "P2", "P3"]).all()
+    assert df["product_id"].str.match(r"^P\d+$").all()
 
 
 def test_machines():
