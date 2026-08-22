@@ -1,0 +1,16 @@
+operation_id,product_id,operation_type,duration,compatible_machines
+OP01,P1,Decoupe,0.02,M1
+OP02,P1,Usinage,0.08,M2|M3|M8
+OP03,P1,Assemblage,0.06,M4|M5
+OP04,P1,Controle,0.015,M6
+OP05,P1,Emballage,0.01,M7
+OP06,P2,Decoupe,0.025,M1
+OP07,P2,Usinage,0.10,M2|M3|M8
+OP08,P2,Assemblage,0.07,M4|M5
+OP09,P2,Controle,0.015,M6
+OP10,P2,Emballage,0.01,M7
+OP11,P3,Decoupe,0.02,M1
+OP12,P3,Usinage,0.09,M2|M3|M8
+OP13,P3,Assemblage,0.065,M4|M5
+OP14,P3,Controle,0.02,M6
+OP15,P3,Emballage,0.01,M7

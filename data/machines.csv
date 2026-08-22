@@ -1,0 +1,9 @@
+machine_id,machine_name,capacity_hours_per_day
+M1,Decoupeuse,8
+M2,Usinage_1,8
+M3,Usinage_2,8
+M4,Assemblage_1,8
+M5,Assemblage_2,8
+M6,Controle,8
+M7,Emballage,8
+M8,Usinage_3,8
