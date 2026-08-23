@@ -5,6 +5,8 @@ import random
 import pandas as pd
 import numpy as np
 import streamlit as st
+import plotly.express as px
+import plotly.graph_objects as go
 
 
 # ============================================================
@@ -96,6 +98,60 @@ def generate_decision_sentence(comparison, scenario_label):
     )
 
     return sentence
+
+
+# ============================================================
+# UTILITAIRE : DIAGRAMME DE GANTT DU PLANNING
+# ============================================================
+
+def create_gantt_chart(schedule, title):
+
+    machines_order = sorted(schedule["machine"].unique(), reverse=True)
+    products = sorted(schedule["product_id"].unique())
+
+    palette = px.colors.qualitative.Set2
+    color_map = {p: palette[i % len(palette)] for i, p in enumerate(products)}
+
+    fig = go.Figure()
+
+    shown_in_legend = set()
+
+    for _, row in schedule.iterrows():
+
+        show_legend = row["product_id"] not in shown_in_legend
+        shown_in_legend.add(row["product_id"])
+
+        fig.add_trace(go.Bar(
+            x=[row["duration"]],
+            y=[row["machine"]],
+            base=[row["start"]],
+            orientation="h",
+            marker_color=color_map[row["product_id"]],
+            name=row["product_id"],
+            legendgroup=row["product_id"],
+            showlegend=show_legend,
+            hovertemplate=(
+                f"<b>{row['task_id']}</b><br>"
+                f"Opération : {row['operation_id']} ({row['operation_type']})<br>"
+                f"Début : {row['start']:.2f} h — Fin : {row['end']:.2f} h<br>"
+                f"Durée : {row['duration']:.2f} h"
+                "<extra></extra>"
+            ),
+        ))
+
+    fig.update_layout(
+        title=title,
+        barmode="stack",
+        xaxis_title="Temps (heures)",
+        yaxis_title="Machine",
+        yaxis=dict(categoryorder="array", categoryarray=machines_order),
+        height=350,
+        margin=dict(l=10, r=10, t=40, b=10),
+        legend_title="Produit",
+        template="plotly_dark",
+    )
+
+    return fig
 
 
 # ============================================================
@@ -219,6 +275,15 @@ if "baseline_kpis" in st.session_state:
         st.metric("Respect des délais", f"{baseline_kpis['on_time_rate']:.2f} %")
 
     st.write(f"**Goulot actuel :** {baseline_kpis['bottleneck']}")
+
+    st.subheader("📅 Planning (Gantt)")
+    st.plotly_chart(
+        create_gantt_chart(
+            st.session_state["baseline_schedule"],
+            "Planning optimisé — Situation actuelle"
+        ),
+        use_container_width=True,
+    )
 
 
 # ============================================================
@@ -415,7 +480,29 @@ if "scenario_kpis" in st.session_state:
     comparison_table = comparison["comparison"].copy()
     st.dataframe(comparison_table, use_container_width=True)
 
-    with st.expander("Voir le planning optimisé du scénario"):
+    st.subheader("📅 Planning comparé (Gantt)")
+
+    col_gantt1, col_gantt2 = st.columns(2)
+
+    with col_gantt1:
+        st.plotly_chart(
+            create_gantt_chart(
+                st.session_state["baseline_schedule"],
+                "Situation actuelle"
+            ),
+            use_container_width=True,
+        )
+
+    with col_gantt2:
+        st.plotly_chart(
+            create_gantt_chart(
+                st.session_state["scenario_schedule"],
+                "Scénario"
+            ),
+            use_container_width=True,
+        )
+
+    with st.expander("Voir le planning optimisé du scénario (données brutes)"):
         scenario_schedule = st.session_state["scenario_schedule"]
         st.dataframe(
             scenario_schedule.sort_values(["machine", "start"]),
