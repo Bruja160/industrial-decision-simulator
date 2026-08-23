@@ -101,6 +101,33 @@ def generate_decision_sentence(comparison, scenario_label):
 
 
 # ============================================================
+# UTILITAIRE : ANALYSE ÉCONOMIQUE (COÛT / GAIN / ROI)
+# ============================================================
+
+def compute_economic_analysis(baseline_kpis, scenario_kpis, cost, hourly_value, hourly_delay_cost):
+
+    makespan_gain_hours = baseline_kpis["makespan"] - scenario_kpis["makespan"]
+    delay_gain_hours = baseline_kpis["total_delay"] - scenario_kpis["total_delay"]
+
+    financial_gain = (
+        makespan_gain_hours * hourly_value
+        + delay_gain_hours * hourly_delay_cost
+    )
+
+    net_gain = financial_gain - cost
+    roi_pct = (financial_gain / cost * 100) if cost > 0 else None
+
+    return {
+        "makespan_gain_hours": makespan_gain_hours,
+        "delay_gain_hours": delay_gain_hours,
+        "financial_gain": financial_gain,
+        "cost": cost,
+        "net_gain": net_gain,
+        "roi_pct": roi_pct,
+    }
+
+
+# ============================================================
 # UTILITAIRE : DIAGRAMME DE GANTT DU PLANNING
 # ============================================================
 
@@ -192,6 +219,27 @@ st.sidebar.header("⚙️ Paramètres du scénario")
 st.sidebar.write(
     "Modifiez un paramètre industriel puis "
     "comparez le scénario avec la situation actuelle."
+)
+
+st.sidebar.divider()
+st.sidebar.header("💰 Paramètres économiques")
+
+hourly_production_value = st.sidebar.number_input(
+    "Valeur horaire de production gagnée (DH/h)",
+    min_value=0,
+    value=500,
+    step=50,
+    help="Combien vaut 1 heure de Makespan économisée pour l'entreprise "
+         "(capacité de production libérée, coût de production évité...)."
+)
+
+hourly_delay_cost = st.sidebar.number_input(
+    "Coût horaire de retard évité (DH/h)",
+    min_value=0,
+    value=200,
+    step=50,
+    help="Combien coûte 1 heure de retard total (pénalités client, "
+         "insatisfaction, coûts logistiques...)."
 )
 
 
@@ -361,6 +409,29 @@ else:
         st.warning("Toutes les machines existantes sont déjà compatibles avec cette opération.")
 
 
+st.subheader("💰 Coût estimé de ce scénario")
+
+st.caption(
+    "Valeurs par défaut illustratives, modifiables librement. Non calibrées "
+    "sur des données industrielles réelles — objectif : démontrer la méthode "
+    "de décision économique, pas fournir un chiffrage validé."
+)
+
+default_cost = 2000 if scenario_type == "Modifier la durée d'une opération" else 40000
+
+scenario_cost = st.number_input(
+    "Investissement nécessaire pour ce scénario (DH)",
+    min_value=0,
+    value=default_cost,
+    step=500,
+    help="⚠️ Valeur par défaut illustrative, à ajuster selon ton contexte réel. "
+         "Pour un ajout de machine, ceci représente typiquement un coût de "
+         "reconfiguration / outillage / formation pour qu'une machine EXISTANTE "
+         "puisse aussi réaliser cette opération — PAS l'achat d'une machine neuve "
+         "(qui coûterait généralement bien plus cher)."
+)
+
+
 if st.button("🔬 Simuler le scénario"):
 
     if "baseline_kpis" not in st.session_state:
@@ -413,6 +484,7 @@ if st.button("🔬 Simuler le scénario"):
     st.session_state["scenario_kpis"] = scenario_kpis
     st.session_state["comparison"] = comparison
     st.session_state["scenario_label"] = scenario_label
+    st.session_state["scenario_cost"] = scenario_cost
 
 
 # ============================================================
@@ -620,6 +692,47 @@ if "scenario_kpis" in st.session_state:
         st.error(f"❌ {recommendation}")
 
     st.markdown(generate_decision_sentence(comparison, scenario_label))
+
+    st.subheader("💰 Analyse économique")
+
+    economics = compute_economic_analysis(
+        baseline_kpis,
+        scenario_kpis,
+        st.session_state.get("scenario_cost", 0),
+        hourly_production_value,
+        hourly_delay_cost,
+    )
+
+    e1, e2, e3 = st.columns(3)
+
+    e1.metric("Investissement", f"{economics['cost']:,.0f} DH")
+    e2.metric("Gain financier estimé", f"{economics['financial_gain']:,.0f} DH")
+
+    if economics["roi_pct"] is not None:
+        e3.metric("ROI", f"{economics['roi_pct']:+.0f} %")
+    else:
+        e3.metric("ROI", "—")
+
+    if economics["cost"] > 0:
+        if economics["net_gain"] > 0:
+            st.success(
+                f"✅ Investissement rentable : gain net estimé de "
+                f"**{economics['net_gain']:,.0f} DH** après déduction du coût "
+                f"({economics['makespan_gain_hours']:.1f}h de Makespan et "
+                f"{economics['delay_gain_hours']:.1f}h de retard économisées)."
+            )
+        else:
+            st.warning(
+                f"⚠️ Sur la base des paramètres actuels, le gain financier estimé "
+                f"({economics['financial_gain']:,.0f} DH) ne couvre pas "
+                f"l'investissement ({economics['cost']:,.0f} DH)."
+            )
+
+    st.caption(
+        "💡 Estimation basée sur les paramètres économiques réglables dans la "
+        "barre latérale (valeur horaire de production, coût horaire de retard). "
+        "Ajuste-les pour refléter la réalité de ton contexte industriel."
+    )
 
     if "mc_results" in st.session_state:
         mc = st.session_state["mc_results"]
