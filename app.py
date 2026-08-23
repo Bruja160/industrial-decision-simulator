@@ -61,6 +61,44 @@ def get_bottleneck_utilization(kpis):
 
 
 # ============================================================
+# UTILITAIRE : PHRASE DE DÉCISION EN LANGAGE HUMAIN
+# ============================================================
+
+def describe_change(value, unit="%"):
+    """Transforme un gain signé en verbe + valeur absolue lisible."""
+    if value > 0.05:
+        return f"diminue de {value:.1f} {unit}"
+    elif value < -0.05:
+        return f"augmente de {abs(value):.1f} {unit}"
+    else:
+        return f"reste quasiment inchangé"
+
+
+def generate_decision_sentence(comparison, scenario_label):
+
+    makespan_txt = describe_change(comparison["makespan_gain"])
+    delay_txt = describe_change(comparison["delay_gain"])
+    on_time_txt = describe_change(comparison["on_time_change"], unit="points")
+
+    recommendation = comparison["recommendation"]
+
+    if recommendation == "SCÉNARIO FAVORABLE":
+        verdict = "Ce scénario est **recommandé**."
+    elif recommendation == "SCÉNARIO À ÉTUDIER":
+        verdict = "Ce scénario **mérite d'être approfondi** avant décision, les gains sont partiels."
+    else:
+        verdict = "Ce scénario **n'est pas recommandé** en l'état."
+
+    sentence = (
+        f"**{scenario_label}**. Avec ce changement, le Makespan {makespan_txt}, "
+        f"le retard total {delay_txt}, et le taux de respect des délais {on_time_txt}. "
+        f"{verdict}"
+    )
+
+    return sentence
+
+
+# ============================================================
 # TITRE
 # ============================================================
 
@@ -372,17 +410,6 @@ if "scenario_kpis" in st.session_state:
         if scenario_utilization is not None:
             st.write(f"Utilisation : {scenario_utilization:.2f} %")
 
-    st.subheader("🎯 Décision")
-
-    recommendation = comparison["recommendation"]
-
-    if recommendation == "SCÉNARIO FAVORABLE":
-        st.success(f"✅ {recommendation}")
-    elif recommendation == "SCÉNARIO À ÉTUDIER":
-        st.warning(f"⚠️ {recommendation}")
-    else:
-        st.error(f"❌ {recommendation}")
-
     st.subheader("📋 Tableau comparatif")
 
     comparison_table = comparison["comparison"].copy()
@@ -459,6 +486,13 @@ if st.button("🎲 Lancer l'analyse Monte Carlo"):
     else:
         makespans_array = np.array(makespans)
 
+        st.session_state["mc_results"] = {
+            "makespans": makespans_array,
+            "n_simulations": n_simulations,
+            "n_valid": len(makespans),
+            "variation_pct": variation_pct,
+        }
+
         st.success(f"{len(makespans)} / {n_simulations} simulations exploitables.")
 
         c1, c2, c3, c4 = st.columns(4)
@@ -476,6 +510,53 @@ if st.button("🎲 Lancer l'analyse Monte Carlo"):
             f"plutôt que d'être exactement la valeur déterministe calculée "
             f"en section 1."
         )
+
+
+# ============================================================
+# 5️⃣ DÉCISION FINALE
+# ============================================================
+
+if "scenario_kpis" in st.session_state:
+
+    st.divider()
+    st.header("5️⃣ Décision finale")
+
+    comparison = st.session_state["comparison"]
+    scenario_label = st.session_state["scenario_label"]
+    recommendation = comparison["recommendation"]
+
+    if recommendation == "SCÉNARIO FAVORABLE":
+        st.success(f"✅ {recommendation}")
+    elif recommendation == "SCÉNARIO À ÉTUDIER":
+        st.warning(f"⚠️ {recommendation}")
+    else:
+        st.error(f"❌ {recommendation}")
+
+    st.markdown(generate_decision_sentence(comparison, scenario_label))
+
+    if "mc_results" in st.session_state:
+        mc = st.session_state["mc_results"]
+        st.caption(
+            f"🎲 Pour rappel, l'analyse Monte Carlo ({mc['n_valid']} simulations, "
+            f"±{mc['variation_pct']}% de variabilité) montre que le Makespan réel "
+            f"de la situation actuelle peut varier entre "
+            f"{mc['makespans'].min():.1f}h et {mc['makespans'].max():.1f}h — "
+            f"à garder en tête pour relativiser la précision du chiffre déterministe "
+            f"ci-dessus."
+        )
+    else:
+        st.caption(
+            "💡 Lance l'analyse Monte Carlo (section 4️⃣) pour connaître la "
+            "fourchette de risque associée à ce résultat."
+        )
+
+else:
+    st.divider()
+    st.header("5️⃣ Décision finale")
+    st.info(
+        "Optimise la situation actuelle puis simule un scénario "
+        "(sections 1️⃣ et 2️⃣) pour obtenir une décision finale."
+    )
 
 
 # ============================================================
