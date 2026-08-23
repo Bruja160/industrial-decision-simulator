@@ -155,7 +155,15 @@ def create_tasks(orders, operations):
 # OPTIMISATION
 # ============================================================
 
-def optimize_schedule(tasks):
+def optimize_schedule(tasks, time_limit=None):
+    """
+    time_limit : permet de forcer une limite de temps différente de
+    SOLVER_TIME_LIMIT pour un appel donné (utilisé par l'analyse
+    Monte Carlo, qui lance de nombreuses résolutions courtes plutôt
+    qu'une seule résolution longue). Si None, comportement inchangé.
+    """
+
+    effective_time_limit = time_limit if time_limit is not None else SOLVER_TIME_LIMIT
 
     print()
     print("=== CONSTRUCTION DU MODELE ===")
@@ -407,12 +415,12 @@ def optimize_schedule(tasks):
 
     print(
         f"Temps maximum : "
-        f"{SOLVER_TIME_LIMIT} secondes"
+        f"{effective_time_limit} secondes"
     )
 
     solver = PULP_CBC_CMD(
         msg=True,
-        timeLimit=SOLVER_TIME_LIMIT,
+        timeLimit=effective_time_limit,
         gapRel=0.0  # précision exacte : essentiel pour la fiabilité des comparaisons de scénarios
     )
 
