@@ -347,66 +347,109 @@ scenario_type = st.radio(
     [
         "Modifier la durée d'une opération",
         "Ajouter une machine compatible à une opération",
+        "Simuler une panne machine (indisponibilité temporaire)",
     ],
     horizontal=True,
 )
 
-operation_options = operations["operation_id"].tolist()
-
-selected_operation = st.selectbox("Opération concernée", operation_options)
-
-selected_row = operations[
-    operations["operation_id"] == selected_operation
-].iloc[0]
-
 machine_to_add = None
 scenario_duration = None
 current_duration = None
+selected_operation = None
+breakdown_machine = None
+breakdown_start = None
+breakdown_end = None
 
-if scenario_type == "Modifier la durée d'une opération":
+if scenario_type in [
+    "Modifier la durée d'une opération",
+    "Ajouter une machine compatible à une opération",
+]:
 
-    current_duration = float(selected_row["duration"])
+    operation_options = operations["operation_id"].tolist()
+    selected_operation = st.selectbox("Opération concernée", operation_options)
 
-    scenario_duration = st.number_input(
-        "Nouvelle durée de l'opération (heures)",
-        min_value=0.001,
-        value=current_duration,
-        step=0.001,
-        format="%.3f"
-    )
+    selected_row = operations[
+        operations["operation_id"] == selected_operation
+    ].iloc[0]
 
-    variation = (scenario_duration - current_duration) / current_duration * 100
+    if scenario_type == "Modifier la durée d'une opération":
 
-    if variation < 0:
-        st.info(f"Amélioration simulée : {variation:.2f} %")
-    elif variation > 0:
-        st.warning(f"Dégradation simulée : +{variation:.2f} %")
+        current_duration = float(selected_row["duration"])
+
+        scenario_duration = st.number_input(
+            "Nouvelle durée de l'opération (heures)",
+            min_value=0.001,
+            value=current_duration,
+            step=0.001,
+            format="%.3f"
+        )
+
+        variation = (scenario_duration - current_duration) / current_duration * 100
+
+        if variation < 0:
+            st.info(f"Amélioration simulée : {variation:.2f} %")
+        elif variation > 0:
+            st.warning(f"Dégradation simulée : +{variation:.2f} %")
+        else:
+            st.info("Aucune modification de durée.")
+
     else:
-        st.info("Aucune modification de durée.")
+
+        current_machines = [
+            m.strip() for m in str(selected_row["compatible_machines"]).split("|")
+        ]
+
+        st.write(f"Machines actuellement compatibles : **{', '.join(current_machines)}**")
+
+        available_machines = [
+            m for m in machines["machine_id"].tolist() if m not in current_machines
+        ]
+
+        if available_machines:
+            machine_to_add = st.selectbox(
+                "Machine à ajouter comme option pour cette opération",
+                available_machines
+            )
+            st.info(
+                f"Cette opération pourra désormais aussi être réalisée sur "
+                f"**{machine_to_add}**, en plus de {', '.join(current_machines)}."
+            )
+        else:
+            st.warning("Toutes les machines existantes sont déjà compatibles avec cette opération.")
 
 else:
 
-    current_machines = [
-        m.strip() for m in str(selected_row["compatible_machines"]).split("|")
-    ]
+    st.write(
+        "Simule l'indisponibilité temporaire d'une machine "
+        "(maintenance planifiée, panne...) et observe comment "
+        "le planning optimal se réorganise autour."
+    )
 
-    st.write(f"Machines actuellement compatibles : **{', '.join(current_machines)}**")
+    breakdown_machine = st.selectbox(
+        "Machine concernée",
+        machines["machine_id"].tolist()
+    )
 
-    available_machines = [
-        m for m in machines["machine_id"].tolist() if m not in current_machines
-    ]
+    col_a, col_b = st.columns(2)
 
-    if available_machines:
-        machine_to_add = st.selectbox(
-            "Machine à ajouter comme option pour cette opération",
-            available_machines
+    with col_a:
+        breakdown_start = st.number_input(
+            "Début de l'indisponibilité (heures)",
+            min_value=0.0,
+            value=10.0,
+            step=1.0,
         )
-        st.info(
-            f"Cette opération pourra désormais aussi être réalisée sur "
-            f"**{machine_to_add}**, en plus de {', '.join(current_machines)}."
+
+    with col_b:
+        breakdown_end = st.number_input(
+            "Fin de l'indisponibilité (heures)",
+            min_value=0.0,
+            value=12.0,
+            step=1.0,
         )
-    else:
-        st.warning("Toutes les machines existantes sont déjà compatibles avec cette opération.")
+
+    if breakdown_end <= breakdown_start:
+        st.warning("La fin de l'indisponibilité doit être après le début.")
 
 
 st.subheader("💰 Coût estimé de ce scénario")
@@ -417,7 +460,12 @@ st.caption(
     "de décision économique, pas fournir un chiffrage validé."
 )
 
-default_cost = 2000 if scenario_type == "Modifier la durée d'une opération" else 40000
+if scenario_type == "Modifier la durée d'une opération":
+    default_cost = 2000
+elif scenario_type == "Ajouter une machine compatible à une opération":
+    default_cost = 40000
+else:
+    default_cost = 0
 
 scenario_cost = st.number_input(
     "Investissement nécessaire pour ce scénario (DH)",
@@ -442,7 +490,14 @@ if st.button("🔬 Simuler le scénario"):
         st.warning("Aucune machine disponible à ajouter pour cette opération.")
         st.stop()
 
+    if scenario_type == "Simuler une panne machine (indisponibilité temporaire)" and (
+        breakdown_end is None or breakdown_start is None or breakdown_end <= breakdown_start
+    ):
+        st.warning("Vérifie les horaires d'indisponibilité (fin doit être après début).")
+        st.stop()
+
     scenario_operations = operations.copy()
+    machine_unavailability = None
 
     if scenario_type == "Modifier la durée d'une opération":
         scenario_operations.loc[
@@ -453,7 +508,8 @@ if st.button("🔬 Simuler le scénario"):
             f"Durée de {selected_operation} modifiée : "
             f"{current_duration:.3f} h → {scenario_duration:.3f} h"
         )
-    else:
+
+    elif scenario_type == "Ajouter une machine compatible à une opération":
         current_value = str(selected_row["compatible_machines"])
         new_value = f"{current_value}|{machine_to_add}"
 
@@ -464,12 +520,25 @@ if st.button("🔬 Simuler le scénario"):
 
         scenario_label = f"{machine_to_add} ajoutée comme machine compatible pour {selected_operation}"
 
+    else:
+        machine_unavailability = {
+            breakdown_machine: [(breakdown_start, breakdown_end)]
+        }
+
+        scenario_label = (
+            f"{breakdown_machine} indisponible de {breakdown_start:.0f}h "
+            f"à {breakdown_end:.0f}h"
+        )
+
     st.caption(f"**Scénario testé :** {scenario_label}")
 
     scenario_tasks = create_tasks(orders, scenario_operations)
 
     with st.spinner("Optimisation du scénario..."):
-        scenario_schedule = optimize_schedule(scenario_tasks)
+        scenario_schedule = optimize_schedule(
+            scenario_tasks,
+            machine_unavailability=machine_unavailability,
+        )
 
     if scenario_schedule is None:
         st.error("Aucune solution trouvée pour ce scénario.")

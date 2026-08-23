@@ -242,3 +242,29 @@ def test_compare_scenarios_unfavorable_case():
     result = compare_scenarios(baseline, scenario)
 
     assert result["recommendation"] == "SCÉNARIO PEU INTÉRESSANT"
+
+
+# ============================================================
+# 7. INDISPONIBILITÉ MACHINE : AUCUNE TÂCHE NE CHEVAUCHE LA FENÊTRE
+# ============================================================
+
+def test_machine_unavailability_respected(orders, machines, operations):
+
+    tasks = create_tasks(orders, operations)
+
+    # M3 indisponible de 5h à 8h
+    schedule = optimize_schedule(
+        tasks,
+        machine_unavailability={"M3": [(5.0, 8.0)]},
+    )
+
+    assert schedule is not None, "Le solveur n'a trouvé aucune solution avec cette contrainte."
+
+    m3_tasks = schedule[schedule["machine"] == "M3"]
+
+    for _, row in m3_tasks.iterrows():
+        overlaps = (row["start"] < 8.0) and (row["end"] > 5.0)
+        assert not overlaps, (
+            f"Une tâche sur M3 chevauche la fenêtre d'indisponibilité "
+            f"(5h-8h) : start={row['start']}, end={row['end']}"
+        )

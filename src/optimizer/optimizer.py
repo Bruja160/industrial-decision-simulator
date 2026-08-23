@@ -155,15 +155,21 @@ def create_tasks(orders, operations):
 # OPTIMISATION
 # ============================================================
 
-def optimize_schedule(tasks, time_limit=None):
+def optimize_schedule(tasks, time_limit=None, machine_unavailability=None):
     """
     time_limit : permet de forcer une limite de temps différente de
     SOLVER_TIME_LIMIT pour un appel donné (utilisé par l'analyse
     Monte Carlo, qui lance de nombreuses résolutions courtes plutôt
     qu'une seule résolution longue). Si None, comportement inchangé.
+
+    machine_unavailability : dict optionnel {machine_id: [(debut, fin), ...]}
+    représentant des fenêtres d'indisponibilité (maintenance, panne...).
+    Une tâche assignée à cette machine doit alors se dérouler entièrement
+    avant ou entièrement après chaque fenêtre. Si None, comportement inchangé.
     """
 
     effective_time_limit = time_limit if time_limit is not None else SOLVER_TIME_LIMIT
+    machine_unavailability = machine_unavailability or {}
 
     print()
     print("=== CONSTRUCTION DU MODELE ===")
@@ -329,6 +335,50 @@ def optimize_schedule(tasks, time_limit=None):
                         + order_ab
                     )
                 )
+
+    # ========================================================
+    # INDISPONIBILITÉS MACHINE (maintenance, panne...)
+    # ========================================================
+
+    if machine_unavailability:
+
+        print(
+            "Ajout des contraintes d'indisponibilité machine..."
+        )
+
+        for task in task_list:
+
+            task_id = task["task_id"]
+
+            for machine in task["compatible_machines"]:
+
+                if machine not in machine_unavailability:
+                    continue
+
+                assign = machine_used[(task_id, machine)]
+
+                for window_start, window_end in machine_unavailability[machine]:
+
+                    order_uw = LpVariable(
+                        f"order_{task_id}_{machine}_{window_start}_{window_end}",
+                        cat="Binary"
+                    )
+
+                    # Si assignée à cette machine ET avant la fenêtre :
+                    # la tâche doit se terminer avant le début de la fenêtre
+                    model += (
+                        end[task_id]
+                        <= window_start
+                        + big_m * (2 - assign - order_uw)
+                    )
+
+                    # Si assignée à cette machine ET après la fenêtre :
+                    # la tâche doit démarrer après la fin de la fenêtre
+                    model += (
+                        start[task_id]
+                        >= window_end
+                        - big_m * (2 - assign - (1 - order_uw))
+                    )
 
     # ========================================================
     # MAKESPAN
