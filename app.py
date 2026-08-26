@@ -104,6 +104,32 @@ def generate_decision_sentence(comparison, scenario_label):
 # UTILITAIRE : ANALYSE ÉCONOMIQUE (COÛT / GAIN / ROI)
 # ============================================================
 
+def generate_shift_unavailability_windows(shift_start, shift_end, num_cycles=15, cycle_length=24):
+    """
+    Génère la liste des fenêtres d'indisponibilité correspondant à une
+    machine qui ne travaille que pendant [shift_start, shift_end] de
+    chaque cycle de 24h (répété num_cycles fois, largement suffisant
+    pour couvrir n'importe quel horizon réaliste de ce projet).
+
+    Réutilise directement le mécanisme machine_unavailability déjà
+    validé pour les pannes machine — aucune nouvelle logique côté
+    solveur, donc aucun nouveau risque numérique.
+    """
+
+    windows = []
+
+    for cycle in range(num_cycles):
+        day_start = cycle * cycle_length
+
+        if shift_start > 0:
+            windows.append((day_start, day_start + shift_start))
+
+        if shift_end < cycle_length:
+            windows.append((day_start + shift_end, day_start + cycle_length))
+
+    return windows
+
+
 def compute_economic_analysis(baseline_kpis, scenario_kpis, cost, hourly_value, hourly_delay_cost):
 
     makespan_gain_hours = baseline_kpis["makespan"] - scenario_kpis["makespan"]
@@ -348,6 +374,7 @@ scenario_type = st.radio(
         "Modifier la durée d'une opération",
         "Ajouter une machine compatible à une opération",
         "Simuler une panne machine (indisponibilité temporaire)",
+        "Simuler un calendrier d'équipes (shift) sur une machine",
     ],
     horizontal=True,
 )
@@ -417,7 +444,7 @@ if scenario_type in [
         else:
             st.warning("Toutes les machines existantes sont déjà compatibles avec cette opération.")
 
-else:
+elif scenario_type == "Simuler une panne machine (indisponibilité temporaire)":
 
     st.write(
         "Simule l'indisponibilité temporaire d'une machine "
@@ -450,6 +477,48 @@ else:
 
     if breakdown_end <= breakdown_start:
         st.warning("La fin de l'indisponibilité doit être après le début.")
+
+else:
+
+    st.write(
+        "Simule une machine qui ne travaille que sur une plage horaire "
+        "fixe chaque jour (ex: équipe unique 07h-15h), au lieu de tourner "
+        "en continu. Le reste du temps, la machine est indisponible."
+    )
+
+    shift_machine = st.selectbox(
+        "Machine concernée",
+        machines["machine_id"].tolist()
+    )
+
+    col_a, col_b = st.columns(2)
+
+    with col_a:
+        shift_start = st.number_input(
+            "Début de l'équipe (heure du cycle, 0-24)",
+            min_value=0,
+            max_value=24,
+            value=7,
+            step=1,
+        )
+
+    with col_b:
+        shift_end = st.number_input(
+            "Fin de l'équipe (heure du cycle, 0-24)",
+            min_value=0,
+            max_value=24,
+            value=15,
+            step=1,
+        )
+
+    if shift_end <= shift_start:
+        st.warning("La fin de l'équipe doit être après le début.")
+    else:
+        st.info(
+            f"La machine {shift_machine} ne sera disponible que de "
+            f"{shift_start}h à {shift_end}h, chaque jour (cycle de 24h), "
+            f"répété sur toute la durée du planning."
+        )
 
 
 st.subheader("💰 Coût estimé de ce scénario")
@@ -496,6 +565,12 @@ if st.button("🔬 Simuler le scénario"):
         st.warning("Vérifie les horaires d'indisponibilité (fin doit être après début).")
         st.stop()
 
+    if scenario_type == "Simuler un calendrier d'équipes (shift) sur une machine" and (
+        shift_end <= shift_start
+    ):
+        st.warning("Vérifie les horaires de l'équipe (fin doit être après début).")
+        st.stop()
+
     scenario_operations = operations.copy()
     machine_unavailability = None
 
@@ -520,7 +595,7 @@ if st.button("🔬 Simuler le scénario"):
 
         scenario_label = f"{machine_to_add} ajoutée comme machine compatible pour {selected_operation}"
 
-    else:
+    elif scenario_type == "Simuler une panne machine (indisponibilité temporaire)":
         machine_unavailability = {
             breakdown_machine: [(breakdown_start, breakdown_end)]
         }
@@ -528,6 +603,18 @@ if st.button("🔬 Simuler le scénario"):
         scenario_label = (
             f"{breakdown_machine} indisponible de {breakdown_start:.0f}h "
             f"à {breakdown_end:.0f}h"
+        )
+
+    else:
+        shift_windows = generate_shift_unavailability_windows(shift_start, shift_end)
+
+        machine_unavailability = {
+            shift_machine: shift_windows
+        }
+
+        scenario_label = (
+            f"{shift_machine} en équipe unique {shift_start}h-{shift_end}h "
+            f"(au lieu de 24h/24)"
         )
 
     st.caption(f"**Scénario testé :** {scenario_label}")
