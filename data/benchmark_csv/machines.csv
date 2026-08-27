@@ -1,0 +1,7 @@
+machine_id,machine_name,capacity_hours_per_day
+M1,Machine_1,8
+M2,Machine_2,8
+M3,Machine_3,8
+M4,Machine_4,8
+M5,Machine_5,8
+M6,Machine_6,8

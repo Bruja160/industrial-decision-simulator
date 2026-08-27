@@ -48,7 +48,10 @@ OPERATIONS_FILE = ROOT / "data" / "operations.csv"
 
 MAKESPAN_WEIGHT = 1.0
 DELAY_WEIGHT = 0.0
-SOLVER_TIME_LIMIT = 300
+# Limite de temps par défaut : 120s (compromis vitesse/précision pour une
+# démo publique). Peut être augmentée (ex: 300s) pour une reproduction
+# rigoureuse en local si besoin de garantir l'optimum exact à 100%.
+SOLVER_TIME_LIMIT = 120
 
 
 # ============================================================
