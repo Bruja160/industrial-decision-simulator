@@ -104,6 +104,71 @@ def generate_decision_sentence(comparison, scenario_label):
 # UTILITAIRE : ANALYSE ÉCONOMIQUE (COÛT / GAIN / ROI)
 # ============================================================
 
+def read_uploaded_table(uploaded_file):
+    """Lit un fichier déposé, CSV ou Excel, selon son extension."""
+
+    if uploaded_file.name.lower().endswith(".xlsx"):
+        return pd.read_excel(uploaded_file)
+
+    return pd.read_csv(uploaded_file)
+
+
+def load_benchmark_mk01():
+    """
+    Charge et convertit l'instance benchmark mk01 (Brandimarte) directement
+    en mémoire (mêmes règles que convert_benchmark.py), sans passer par
+    l'écriture de fichiers CSV intermédiaires.
+    """
+
+    import json
+
+    mk01_path = ROOT / "data" / "benchmark" / "mk01.json"
+
+    with open(mk01_path, "r") as f:
+        instance = json.load(f)
+
+    n_machines = instance["machines"]
+    jobs = instance["jobs"]
+
+    machines_rows = [
+        {"machine_id": f"M{m + 1}", "machine_name": f"Machine_{m + 1}", "capacity_hours_per_day": 8}
+        for m in range(n_machines)
+    ]
+
+    operations_rows = []
+    job_total_durations = []
+
+    for job_index, job_operations in enumerate(jobs):
+        product_id = f"P{job_index + 1}"
+        total_duration = 0.0
+
+        for op_index, options in enumerate(job_operations):
+            avg_duration = sum(o["processing"] for o in options) / len(options)
+            total_duration += avg_duration
+
+            operations_rows.append({
+                "operation_id": f"OP{job_index + 1}_{op_index + 1}",
+                "product_id": product_id,
+                "operation_type": f"Etape_{op_index + 1}",
+                "duration": round(avg_duration, 3),
+                "compatible_machines": "|".join(f"M{o['machine'] + 1}" for o in options),
+            })
+
+        job_total_durations.append(total_duration)
+
+    orders_rows = [
+        {
+            "order_id": f"O{job_index + 1:02d}",
+            "product_id": f"P{job_index + 1}",
+            "quantity": 1,
+            "deadline": round(total_duration * 1.5, 1),
+        }
+        for job_index, total_duration in enumerate(job_total_durations)
+    ]
+
+    return pd.DataFrame(orders_rows), pd.DataFrame(machines_rows), pd.DataFrame(operations_rows)
+
+
 def validate_uploaded_data(orders_df, machines_df, operations_df):
     """
     Valide un jeu de données déposé par l'utilisateur, avant de l'utiliser.
@@ -355,15 +420,22 @@ with st.expander("📁 Charger un autre système industriel (optionnel)"):
     col_u1, col_u2, col_u3 = st.columns(3)
 
     with col_u1:
-        uploaded_orders = st.file_uploader("orders.csv", type="csv", key="upload_orders")
+        uploaded_orders = st.file_uploader(
+            "orders.csv / .xlsx", type=["csv", "xlsx"], key="upload_orders"
+        )
 
     with col_u2:
-        uploaded_machines = st.file_uploader("machines.csv", type="csv", key="upload_machines")
+        uploaded_machines = st.file_uploader(
+            "machines.csv / .xlsx", type=["csv", "xlsx"], key="upload_machines"
+        )
 
     with col_u3:
-        uploaded_operations = st.file_uploader("operations.csv", type="csv", key="upload_operations")
+        uploaded_operations = st.file_uploader(
+            "operations.csv / .xlsx", type=["csv", "xlsx"], key="upload_operations"
+        )
 
     st.caption(
+        "**Formats acceptés** : .csv ou .xlsx (Excel). "
         "**Colonnes attendues** — `orders.csv` : order_id, product_id, quantity, deadline · "
         "`machines.csv` : machine_id, machine_name · "
         "`operations.csv` : operation_id, product_id, operation_type, duration, compatible_machines "
@@ -381,9 +453,9 @@ with st.expander("📁 Charger un autre système industriel (optionnel)"):
         if st.session_state.get("data_signature") != current_signature:
 
             try:
-                new_orders = pd.read_csv(uploaded_orders)
-                new_machines = pd.read_csv(uploaded_machines)
-                new_operations = pd.read_csv(uploaded_operations)
+                new_orders = read_uploaded_table(uploaded_orders)
+                new_machines = read_uploaded_table(uploaded_machines)
+                new_operations = read_uploaded_table(uploaded_operations)
             except Exception as e:
                 st.error(f"Erreur de lecture des fichiers CSV : {e}")
                 new_orders = new_machines = new_operations = None
@@ -420,15 +492,47 @@ with st.expander("📁 Charger un autre système industriel (optionnel)"):
     elif uploaded_orders or uploaded_machines or uploaded_operations:
         st.warning("Dépose les 3 fichiers ensemble (orders, machines, operations) pour charger un nouveau système.")
 
-    if "custom_orders" in st.session_state:
-        if st.button("↩️ Revenir au jeu de données par défaut"):
-            for key in [
-                "custom_orders", "custom_machines", "custom_operations", "data_signature",
-                "baseline_kpis", "baseline_schedule", "scenario_kpis",
-                "scenario_schedule", "comparison", "scenario_label", "mc_results",
-            ]:
-                st.session_state.pop(key, None)
-            st.rerun()
+    st.divider()
+
+    col_bench, col_default = st.columns(2)
+
+    with col_bench:
+        if st.button("🧪 Charger l'instance benchmark mk01 (Brandimarte)"):
+            try:
+                bench_orders, bench_machines, bench_operations = load_benchmark_mk01()
+            except FileNotFoundError:
+                st.error(
+                    "Fichier data/benchmark/mk01.json introuvable dans le dépôt."
+                )
+            else:
+                st.session_state["custom_orders"] = bench_orders
+                st.session_state["custom_machines"] = bench_machines
+                st.session_state["custom_operations"] = bench_operations
+                st.session_state["data_signature"] = "benchmark_mk01"
+
+                for key in [
+                    "baseline_kpis", "baseline_schedule", "scenario_kpis",
+                    "scenario_schedule", "comparison", "scenario_label", "mc_results",
+                ]:
+                    st.session_state.pop(key, None)
+
+                st.success(
+                    f"✅ Instance mk01 chargée : {len(bench_orders)} commandes, "
+                    f"{len(bench_machines)} machines, {len(bench_operations)} opérations "
+                    f"(référence académique Brandimarte, FJSP)."
+                )
+                st.rerun()
+
+    with col_default:
+        if "custom_orders" in st.session_state:
+            if st.button("↩️ Revenir au jeu de données par défaut"):
+                for key in [
+                    "custom_orders", "custom_machines", "custom_operations", "data_signature",
+                    "baseline_kpis", "baseline_schedule", "scenario_kpis",
+                    "scenario_schedule", "comparison", "scenario_label", "mc_results",
+                ]:
+                    st.session_state.pop(key, None)
+                st.rerun()
 
 
 # Si un jeu de données personnalisé est actif en session, il prend le pas
