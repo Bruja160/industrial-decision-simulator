@@ -514,14 +514,6 @@ if "baseline_kpis" in st.session_state:
 
     st.write(f"**Goulot actuel :** {baseline_kpis['bottleneck']}")
 
-    st.subheader("📅 Planning (Gantt)")
-    st.plotly_chart(
-        create_gantt_chart(
-            st.session_state["baseline_schedule"],
-            "Planning optimisé — Situation actuelle"
-        ),
-        use_container_width=True,
-    )
 
 
 # ============================================================
@@ -540,7 +532,7 @@ scenario_type = st.radio(
         "Simuler une panne machine (indisponibilité temporaire)",
         "Simuler un calendrier d'équipes (shift) sur une machine",
     ],
-    horizontal=True,
+    horizontal=False,
 )
 
 machine_to_add = None
