@@ -104,6 +104,75 @@ def generate_decision_sentence(comparison, scenario_label):
 # UTILITAIRE : ANALYSE ÉCONOMIQUE (COÛT / GAIN / ROI)
 # ============================================================
 
+def validate_uploaded_data(orders_df, machines_df, operations_df):
+    """
+    Valide un jeu de données déposé par l'utilisateur, avant de l'utiliser.
+    Retourne une liste d'erreurs (vide si tout est valide). Réutilise la
+    même logique de contrôle que tests/test_data.py.
+    """
+
+    errors = []
+
+    required_orders_cols = {"order_id", "product_id", "quantity", "deadline"}
+    required_machines_cols = {"machine_id", "machine_name"}
+    required_operations_cols = {
+        "operation_id", "product_id", "operation_type", "duration", "compatible_machines"
+    }
+
+    missing_orders = required_orders_cols - set(orders_df.columns)
+    missing_machines = required_machines_cols - set(machines_df.columns)
+    missing_operations = required_operations_cols - set(operations_df.columns)
+
+    if missing_orders:
+        errors.append(f"orders.csv : colonnes manquantes {sorted(missing_orders)}")
+    if missing_machines:
+        errors.append(f"machines.csv : colonnes manquantes {sorted(missing_machines)}")
+    if missing_operations:
+        errors.append(f"operations.csv : colonnes manquantes {sorted(missing_operations)}")
+
+    if errors:
+        return errors  # colonnes manquantes -> impossible de vérifier le reste
+
+    if not orders_df["order_id"].is_unique:
+        errors.append("orders.csv : la colonne order_id contient des doublons")
+    if not machines_df["machine_id"].is_unique:
+        errors.append("machines.csv : la colonne machine_id contient des doublons")
+    if not operations_df["operation_id"].is_unique:
+        errors.append("operations.csv : la colonne operation_id contient des doublons")
+
+    if len(orders_df) == 0 or (orders_df["quantity"] <= 0).any():
+        errors.append("orders.csv : toutes les quantités doivent être > 0")
+    if len(orders_df) == 0 or (orders_df["deadline"] <= 0).any():
+        errors.append("orders.csv : toutes les deadlines doivent être > 0")
+    if len(operations_df) == 0 or (operations_df["duration"] <= 0).any():
+        errors.append("operations.csv : toutes les durées doivent être > 0")
+    if operations_df["compatible_machines"].isna().any():
+        errors.append("operations.csv : compatible_machines ne doit jamais être vide")
+
+    valid_products = set(orders_df["product_id"])
+    operation_products = set(operations_df["product_id"])
+    if not operation_products.issubset(valid_products):
+        errors.append(
+            "operations.csv : certains product_id n'existent dans aucune commande "
+            f"d'orders.csv ({sorted(operation_products - valid_products)})"
+        )
+
+    all_machine_ids = set(machines_df["machine_id"])
+    referenced_machines = set()
+    for value in operations_df["compatible_machines"].dropna():
+        for m in str(value).split("|"):
+            referenced_machines.add(m.strip())
+
+    unknown_machines = referenced_machines - all_machine_ids
+    if unknown_machines:
+        errors.append(
+            f"operations.csv : machines référencées mais absentes de machines.csv : "
+            f"{sorted(unknown_machines)}"
+        )
+
+    return errors
+
+
 def generate_shift_unavailability_windows(shift_start, shift_end, num_cycles=15, cycle_length=24):
     """
     Génère la liste des fenêtres d'indisponibilité correspondant à une
@@ -274,6 +343,101 @@ hourly_delay_cost = st.sidebar.number_input(
 # ============================================================
 
 st.header("📊 Données du système industriel")
+
+with st.expander("📁 Charger un autre système industriel (optionnel)"):
+
+    st.write(
+        "Le moteur d'optimisation est **générique** : il ne connaît aucun détail "
+        "propre à ce jeu de données. Dépose tes propres fichiers CSV pour tester "
+        "ton propre atelier de production, sans toucher au code."
+    )
+
+    col_u1, col_u2, col_u3 = st.columns(3)
+
+    with col_u1:
+        uploaded_orders = st.file_uploader("orders.csv", type="csv", key="upload_orders")
+
+    with col_u2:
+        uploaded_machines = st.file_uploader("machines.csv", type="csv", key="upload_machines")
+
+    with col_u3:
+        uploaded_operations = st.file_uploader("operations.csv", type="csv", key="upload_operations")
+
+    st.caption(
+        "**Colonnes attendues** — `orders.csv` : order_id, product_id, quantity, deadline · "
+        "`machines.csv` : machine_id, machine_name · "
+        "`operations.csv` : operation_id, product_id, operation_type, duration, compatible_machines "
+        "(format `M1|M2|M3` pour plusieurs machines compatibles)."
+    )
+
+    if uploaded_orders and uploaded_machines and uploaded_operations:
+
+        current_signature = (
+            uploaded_orders.name, uploaded_orders.size,
+            uploaded_machines.name, uploaded_machines.size,
+            uploaded_operations.name, uploaded_operations.size,
+        )
+
+        if st.session_state.get("data_signature") != current_signature:
+
+            try:
+                new_orders = pd.read_csv(uploaded_orders)
+                new_machines = pd.read_csv(uploaded_machines)
+                new_operations = pd.read_csv(uploaded_operations)
+            except Exception as e:
+                st.error(f"Erreur de lecture des fichiers CSV : {e}")
+                new_orders = new_machines = new_operations = None
+
+            if new_orders is not None:
+
+                validation_errors = validate_uploaded_data(new_orders, new_machines, new_operations)
+
+                if validation_errors:
+                    st.error(
+                        "❌ Fichiers invalides, le système précédent reste actif :\n\n"
+                        + "\n".join(f"- {e}" for e in validation_errors)
+                    )
+                else:
+                    orders, machines, operations = new_orders, new_machines, new_operations
+
+                    st.session_state["custom_orders"] = orders
+                    st.session_state["custom_machines"] = machines
+                    st.session_state["custom_operations"] = operations
+                    st.session_state["data_signature"] = current_signature
+
+                    for key in [
+                        "baseline_kpis", "baseline_schedule", "scenario_kpis",
+                        "scenario_schedule", "comparison", "scenario_label", "mc_results",
+                    ]:
+                        st.session_state.pop(key, None)
+
+                    st.success(
+                        f"✅ Nouveau système chargé : {len(orders)} commandes, "
+                        f"{len(machines)} machines, {len(operations)} opérations. "
+                        f"Les résultats précédents ont été réinitialisés."
+                    )
+
+    elif uploaded_orders or uploaded_machines or uploaded_operations:
+        st.warning("Dépose les 3 fichiers ensemble (orders, machines, operations) pour charger un nouveau système.")
+
+    if "custom_orders" in st.session_state:
+        if st.button("↩️ Revenir au jeu de données par défaut"):
+            for key in [
+                "custom_orders", "custom_machines", "custom_operations", "data_signature",
+                "baseline_kpis", "baseline_schedule", "scenario_kpis",
+                "scenario_schedule", "comparison", "scenario_label", "mc_results",
+            ]:
+                st.session_state.pop(key, None)
+            st.rerun()
+
+
+# Si un jeu de données personnalisé est actif en session, il prend le pas
+# sur le jeu de données par défaut chargé plus haut.
+if "custom_orders" in st.session_state:
+    orders = st.session_state["custom_orders"]
+    machines = st.session_state["custom_machines"]
+    operations = st.session_state["custom_operations"]
+
 
 col1, col2, col3, col4 = st.columns(4)
 
