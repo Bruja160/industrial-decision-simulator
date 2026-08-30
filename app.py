@@ -36,9 +36,11 @@ from src.analysis.scenario_analysis import compare_scenarios
 # CONFIGURATION STREAMLIT
 # ============================================================
 
+favicon_path = ROOT / "favicon.png"
+
 st.set_page_config(
-    page_title="Industrial Decision Simulator",
-    page_icon="🏭",
+    page_title="Industrial What-If Simulator",
+    page_icon=str(favicon_path) if favicon_path.exists() else "🏭",
     layout="wide",
 )
 
@@ -262,6 +264,45 @@ def generate_shift_unavailability_windows(shift_start, shift_end, num_cycles=15,
             windows.append((day_start + shift_end, day_start + cycle_length))
 
     return windows
+
+
+def compute_decision_score(baseline_kpis, scenario_kpis, comparison):
+    """
+    Score de décision multicritère (0-100), pondéré :
+      40% respect des délais, 30% retard total, 20% Makespan,
+      10% équilibre d'utilisation des machines.
+
+    Mapping des gains en % vers un sous-score 0-100 : linéaire, centré
+    sur 50 pour "aucun changement" (ex: +50% de gain -> 100, -50% -> 0).
+    Pondérations et mapping choisis pour être simples et transparents,
+    pas calibrés sur des données industrielles réelles — à documenter
+    comme illustratif, au même titre que l'analyse économique.
+    """
+
+    def gain_to_subscore(gain_pct):
+        return float(np.clip(50 + gain_pct, 0, 100))
+
+    score_delais = float(scenario_kpis["on_time_rate"])  # déjà 0-100
+    score_retard = gain_to_subscore(comparison["delay_gain"])
+    score_makespan = gain_to_subscore(comparison["makespan_gain"])
+
+    utilization_std = float(scenario_kpis["machines"]["utilization_percent"].std())
+    score_equilibre = float(np.clip(100 - utilization_std, 0, 100))
+
+    total_score = (
+        0.40 * score_delais
+        + 0.30 * score_retard
+        + 0.20 * score_makespan
+        + 0.10 * score_equilibre
+    )
+
+    return {
+        "total": total_score,
+        "score_delais": score_delais,
+        "score_retard": score_retard,
+        "score_makespan": score_makespan,
+        "score_equilibre": score_equilibre,
+    }
 
 
 def compute_economic_analysis(baseline_kpis, scenario_kpis, cost, hourly_value, hourly_delay_cost):
@@ -652,7 +693,15 @@ if scenario_type in [
     "Ajouter une machine compatible à une opération",
 ]:
 
-    operation_options = operations["operation_id"].tolist()
+    selected_product = st.selectbox(
+        "Produit concerné",
+        sorted(operations["product_id"].unique())
+    )
+
+    operation_options = operations[
+        operations["product_id"] == selected_product
+    ]["operation_id"].tolist()
+
     selected_operation = st.selectbox("Opération concernée", operation_options)
 
     selected_row = operations[
@@ -997,6 +1046,26 @@ if "scenario_kpis" in st.session_state:
             use_container_width=True
         )
 
+    st.subheader("⬇️ Exporter les plannings")
+
+    col_dl1, col_dl2 = st.columns(2)
+
+    with col_dl1:
+        st.download_button(
+            "Télécharger le planning — Situation actuelle (CSV)",
+            data=st.session_state["baseline_schedule"].sort_values(["machine", "start"]).to_csv(index=False),
+            file_name="planning_situation_actuelle.csv",
+            mime="text/csv",
+        )
+
+    with col_dl2:
+        st.download_button(
+            "Télécharger le planning — Scénario (CSV)",
+            data=st.session_state["scenario_schedule"].sort_values(["machine", "start"]).to_csv(index=False),
+            file_name="planning_scenario.csv",
+            mime="text/csv",
+        )
+
 
 # ============================================================
 # 4️⃣ ANALYSE DE L'INCERTITUDE (MONTE CARLO)
@@ -1013,13 +1082,22 @@ st.write(
     "Makespan plutôt qu'un chiffre unique."
 )
 
-col1, col2 = st.columns(2)
+col1, col2, col3 = st.columns(3)
 
 with col1:
     n_simulations = st.slider("Nombre de simulations", min_value=5, max_value=30, value=15)
 
 with col2:
     variation_pct = st.slider("Variation des durées (%)", min_value=5, max_value=30, value=15)
+
+with col3:
+    target_makespan = st.number_input(
+        "Objectif Makespan cible (h)",
+        min_value=0.0,
+        value=90.0,
+        step=5.0,
+        help="Calcule la probabilité que le Makespan réel reste sous ce seuil."
+    )
 
 st.caption(
     f"⏱️ Chaque simulation est limitée à 30 secondes de calcul pour rester "
@@ -1061,11 +1139,15 @@ if st.button("🎲 Lancer l'analyse Monte Carlo"):
     else:
         makespans_array = np.array(makespans)
 
+        probability_target = float((makespans_array <= target_makespan).mean() * 100)
+
         st.session_state["mc_results"] = {
             "makespans": makespans_array,
             "n_simulations": n_simulations,
             "n_valid": len(makespans),
             "variation_pct": variation_pct,
+            "target_makespan": target_makespan,
+            "probability_target": probability_target,
         }
 
         st.success(f"{len(makespans)} / {n_simulations} simulations exploitables.")
@@ -1075,6 +1157,22 @@ if st.button("🎲 Lancer l'analyse Monte Carlo"):
         c2.metric("Makespan moyen", f"{makespans_array.mean():.2f} h")
         c3.metric("Makespan maximum", f"{makespans_array.max():.2f} h")
         c4.metric("Écart-type", f"{makespans_array.std():.2f} h")
+
+        if probability_target >= 70:
+            st.success(
+                f"🎯 **{probability_target:.0f}% de chances** de terminer avant "
+                f"{target_makespan:.0f}h."
+            )
+        elif probability_target >= 40:
+            st.warning(
+                f"🎯 **{probability_target:.0f}% de chances** de terminer avant "
+                f"{target_makespan:.0f}h."
+            )
+        else:
+            st.error(
+                f"🎯 Seulement **{probability_target:.0f}% de chances** de terminer "
+                f"avant {target_makespan:.0f}h."
+            )
 
         st.bar_chart(pd.DataFrame({"Makespan (h)": makespans_array}))
 
@@ -1108,6 +1206,31 @@ if "scenario_kpis" in st.session_state:
         st.error(f"❌ {recommendation}")
 
     st.markdown(generate_decision_sentence(comparison, scenario_label))
+
+    st.subheader("🎯 Score de décision multicritère")
+
+    decision_score = compute_decision_score(baseline_kpis, scenario_kpis, comparison)
+
+    score_col, detail_col = st.columns([1, 2])
+
+    with score_col:
+        st.metric("Score global", f"{decision_score['total']:.0f} / 100")
+
+    with detail_col:
+        st.write(
+            f"Respect délais (40%) : {decision_score['score_delais']:.0f}/100 · "
+            f"Retard (30%) : {decision_score['score_retard']:.0f}/100"
+        )
+        st.write(
+            f"Makespan (20%) : {decision_score['score_makespan']:.0f}/100 · "
+            f"Équilibre machines (10%) : {decision_score['score_equilibre']:.0f}/100"
+        )
+
+    st.caption(
+        "⚠️ Pondérations et échelle de score illustratives (non calibrées "
+        "sur un cas industriel réel), pour synthétiser plusieurs KPI en un "
+        "seul chiffre lisible par un décideur pressé."
+    )
 
     st.subheader("💰 Analyse économique")
 
@@ -1156,7 +1279,9 @@ if "scenario_kpis" in st.session_state:
             f"🎲 Pour rappel, l'analyse Monte Carlo ({mc['n_valid']} simulations, "
             f"±{mc['variation_pct']}% de variabilité) montre que le Makespan réel "
             f"de la situation actuelle peut varier entre "
-            f"{mc['makespans'].min():.1f}h et {mc['makespans'].max():.1f}h — "
+            f"{mc['makespans'].min():.1f}h et {mc['makespans'].max():.1f}h "
+            f"(probabilité de rester sous {mc.get('target_makespan', 0):.0f}h : "
+            f"{mc.get('probability_target', 0):.0f}%) — "
             f"à garder en tête pour relativiser la précision du chiffre déterministe "
             f"ci-dessus."
         )
@@ -1165,6 +1290,51 @@ if "scenario_kpis" in st.session_state:
             "💡 Lance l'analyse Monte Carlo (section 4️⃣) pour connaître la "
             "fourchette de risque associée à ce résultat."
         )
+
+    st.subheader("📄 Résumé exportable")
+
+    summary_lines = [
+        "INDUSTRIAL WHAT-IF SIMULATOR — RÉSUMÉ DE DÉCISION",
+        "=" * 55,
+        "",
+        f"Scénario testé : {scenario_label}",
+        f"Décision : {recommendation}",
+        "",
+        generate_decision_sentence(comparison, scenario_label).replace("**", ""),
+        "",
+        "--- Comparaison des performances ---",
+        f"Makespan       : {baseline_kpis['makespan']:.2f} h -> {scenario_kpis['makespan']:.2f} h "
+        f"({comparison['makespan_gain']:+.1f} %)",
+        f"Retard total   : {baseline_kpis['total_delay']:.2f} h -> {scenario_kpis['total_delay']:.2f} h "
+        f"({comparison['delay_gain']:+.1f} %)",
+        f"Respect délais : {baseline_kpis['on_time_rate']:.2f} % -> {scenario_kpis['on_time_rate']:.2f} % "
+        f"({comparison['on_time_change']:+.1f} points)",
+        f"Goulot actuel  : {baseline_kpis['bottleneck']}",
+        f"Goulot scénario: {scenario_kpis['bottleneck']}",
+        "",
+        "--- Analyse économique ---",
+        f"Investissement      : {economics['cost']:,.0f} DH",
+        f"Gain financier estimé : {economics['financial_gain']:,.0f} DH",
+        f"ROI : {economics['roi_pct']:+.0f} %" if economics["roi_pct"] is not None else "ROI : —",
+    ]
+
+    if "mc_results" in st.session_state:
+        mc = st.session_state["mc_results"]
+        summary_lines += [
+            "",
+            "--- Analyse Monte Carlo (situation actuelle) ---",
+            f"{mc['n_valid']} simulations, ±{mc['variation_pct']}% de variabilité",
+            f"Makespan observé entre {mc['makespans'].min():.1f} h et {mc['makespans'].max():.1f} h",
+        ]
+
+    summary_text = "\n".join(summary_lines)
+
+    st.download_button(
+        "⬇️ Télécharger le résumé de la décision (texte)",
+        data=summary_text,
+        file_name="resume_decision.txt",
+        mime="text/plain",
+    )
 
 else:
     st.divider()
