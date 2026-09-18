@@ -46,6 +46,178 @@ st.set_page_config(
 
 
 # ============================================================
+# CSS PERSONNALISÉ (thème sombre, cartes, boutons, badges)
+# ============================================================
+# Note : cible des classes internes Streamlit (data-testid) qui ne sont
+# pas une API officiellement garantie. Fonctionne avec la version actuelle
+# de Streamlit ; une future mise à jour pourrait nécessiter un ajustement.
+
+st.markdown("""
+<style>
+:root {
+    --bg-card: #131b2e;
+    --border-color: rgba(148,163,184,0.15);
+    --accent-blue: #3b82f6;
+    --accent-purple: #8b5cf6;
+    --accent-cyan: #22d3ee;
+    --text-primary: #e2e8f0;
+    --text-secondary: #94a3b8;
+}
+
+.stApp {
+    background: linear-gradient(180deg, #0b1120 0%, #0e1526 100%);
+}
+
+[data-testid="stSidebar"] {
+    background: #0d1420;
+    border-right: 1px solid rgba(148,163,184,0.1);
+}
+
+[data-testid="stMetric"] {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 14px;
+    padding: 16px 18px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.35);
+}
+
+[data-testid="stMetricLabel"] {
+    color: var(--text-secondary) !important;
+    text-transform: uppercase;
+    font-size: 0.72rem !important;
+    letter-spacing: 0.05em;
+}
+
+[data-testid="stMetricValue"] {
+    color: var(--text-primary) !important;
+    font-weight: 700 !important;
+}
+
+.stButton > button {
+    border-radius: 10px;
+    background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+    border: none;
+    color: white;
+    font-weight: 600;
+    padding: 0.6rem 1.3rem;
+    box-shadow: 0 4px 14px rgba(59,130,246,0.30);
+    transition: all 0.15s ease;
+}
+
+.stButton > button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px rgba(59,130,246,0.45);
+    color: white;
+}
+
+.stDownloadButton > button {
+    border-radius: 10px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-card);
+    color: var(--text-primary);
+}
+
+[data-testid="stExpander"] {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+}
+
+hr {
+    border-color: var(--border-color) !important;
+}
+
+/* --- En-tête "hero" --- */
+.hero-card {
+    background: linear-gradient(135deg, rgba(59,130,246,0.12), rgba(139,92,246,0.08));
+    border: 1px solid var(--border-color);
+    border-radius: 18px;
+    padding: 28px 32px;
+    margin-bottom: 24px;
+}
+
+.hero-title {
+    font-size: 2.1rem;
+    font-weight: 800;
+    background: linear-gradient(135deg, #60a5fa, #a78bfa);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin: 0;
+}
+
+.hero-subtitle {
+    color: var(--text-secondary);
+    margin-top: 6px;
+    font-size: 0.98rem;
+}
+
+.badge-row {
+    display: flex;
+    gap: 10px;
+    margin-top: 18px;
+    flex-wrap: wrap;
+}
+
+.badge-pill {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(148,163,184,0.2);
+    border-radius: 999px;
+    padding: 6px 14px;
+    font-size: 0.85rem;
+    color: var(--text-primary);
+}
+
+.badge-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent-cyan);
+    margin-right: 6px;
+}
+
+/* --- Titres de section numérotés --- */
+.section-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 30px 0 14px 0;
+}
+
+.section-badge {
+    background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+    color: white;
+    font-weight: 700;
+    font-size: 0.85rem;
+    border-radius: 8px;
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.section-title {
+    font-size: 1.45rem;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+</style>
+""", unsafe_allow_html=True)
+
+
+def section_header(number, title, icon=""):
+    """Affiche un titre de section stylé (remplace st.header pour un look cohérent)."""
+    st.markdown(f"""
+    <div class="section-header">
+        <span class="section-badge">{number}</span>
+        <span class="section-title">{icon} {title}</span>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+# ============================================================
 # UTILITAIRE : RETROUVER LE TAUX D'UTILISATION DU GOULOT
 # ============================================================
 # kpis["bottleneck"] est une chaîne déjà formatée, ex: "M3 - Usinage_2".
@@ -383,18 +555,6 @@ def create_gantt_chart(schedule, title):
 
 
 # ============================================================
-# TITRE
-# ============================================================
-
-st.title("🏭 Industrial Decision Simulator")
-
-st.write(
-    "Système digital d'aide à la décision pour "
-    "l'amélioration des performances industrielles."
-)
-
-
-# ============================================================
 # CHARGEMENT DES DONNÉES
 # ============================================================
 
@@ -445,10 +605,8 @@ hourly_delay_cost = st.sidebar.number_input(
 
 
 # ============================================================
-# DONNÉES DU SYSTÈME
+# DONNÉES DU SYSTÈME (upload / benchmark)
 # ============================================================
-
-st.header("📊 Données du système industriel")
 
 with st.expander("📁 Charger un autre système industriel (optionnel)"):
 
@@ -578,10 +736,35 @@ with st.expander("📁 Charger un autre système industriel (optionnel)"):
 
 # Si un jeu de données personnalisé est actif en session, il prend le pas
 # sur le jeu de données par défaut chargé plus haut.
-if "custom_orders" in st.session_state:
+is_custom_dataset = "custom_orders" in st.session_state
+
+if is_custom_dataset:
     orders = st.session_state["custom_orders"]
     machines = st.session_state["custom_machines"]
     operations = st.session_state["custom_operations"]
+
+
+# ============================================================
+# EN-TÊTE "HERO" (remplace le titre simple)
+# ============================================================
+
+dataset_label = "Jeu personnalisé" if is_custom_dataset else "Atelier de démonstration"
+
+st.markdown(f"""
+<div class="hero-card">
+    <div class="hero-title">Industrial What-If Simulator</div>
+    <div class="hero-subtitle">
+        Testez une décision de production avant de l'appliquer : capacité, panne,
+        équipes, process. Le moteur calcule un planning optimal, les KPI, le risque et le ROI.
+    </div>
+    <div class="badge-row">
+        <span class="badge-pill"><span class="badge-dot"></span>{dataset_label}</span>
+        <span class="badge-pill">Commandes · {len(orders)}</span>
+        <span class="badge-pill">Machines · {len(machines)}</span>
+        <span class="badge-pill">Opérations · {len(operations)}</span>
+    </div>
+</div>
+""", unsafe_allow_html=True)
 
 
 col1, col2, col3, col4 = st.columns(4)
@@ -613,7 +796,7 @@ with st.expander("Voir les opérations"):
 # 1️⃣ OPTIMISATION SITUATION ACTUELLE
 # ============================================================
 
-st.header("1️⃣ Situation actuelle")
+section_header("01", "Situation actuelle", "🚀")
 
 
 if st.button("🚀 Optimiser la situation actuelle", type="primary"):
@@ -665,7 +848,7 @@ if "baseline_kpis" in st.session_state:
 # 2️⃣ CRÉATION DU SCÉNARIO
 # ============================================================
 
-st.header("2️⃣ Création du scénario")
+section_header("02", "Création du scénario", "🎛️")
 
 st.write("Choisissez le type de décision industrielle à tester.")
 
@@ -962,7 +1145,7 @@ if "scenario_kpis" in st.session_state:
     comparison = st.session_state["comparison"]
     baseline_kpis = st.session_state["baseline_kpis"]
 
-    st.header("3️⃣ Résultats de la simulation")
+    section_header("03", "Résultats de la simulation", "📊")
 
     st.subheader("📊 Comparaison des performances")
 
@@ -1072,7 +1255,7 @@ if "scenario_kpis" in st.session_state:
 # ============================================================
 
 st.divider()
-st.header("4️⃣ Analyse de l'incertitude (Monte Carlo)")
+section_header("04", "Analyse de l'incertitude (Monte Carlo)", "🎲")
 
 st.write(
     "En réalité, les durées ne sont jamais parfaitement fixes "
@@ -1192,7 +1375,7 @@ if st.button("🎲 Lancer l'analyse Monte Carlo"):
 if "scenario_kpis" in st.session_state:
 
     st.divider()
-    st.header("5️⃣ Décision finale")
+    section_header("05", "Décision finale", "🏆")
 
     comparison = st.session_state["comparison"]
     scenario_label = st.session_state["scenario_label"]
@@ -1338,7 +1521,7 @@ if "scenario_kpis" in st.session_state:
 
 else:
     st.divider()
-    st.header("5️⃣ Décision finale")
+    section_header("05", "Décision finale", "🏆")
     st.info(
         "Optimise la situation actuelle puis simule un scénario "
         "(sections 1️⃣ et 2️⃣) pour obtenir une décision finale."
@@ -1352,6 +1535,6 @@ else:
 st.divider()
 
 st.caption(
-    "Industrial Decision Simulator — "
+    "Industrial What-If Simulator — "
     "Système digital d'aide à la décision industrielle"
 )
