@@ -203,6 +203,13 @@ hr {
     font-weight: 700;
     color: var(--text-primary);
 }
+
+/* --- Navigation par onglets : dashboard --- */
+[data-testid="stTabs"] [role="tablist"] { gap: 8px; background: rgba(13,25,41,0.72); border: 1px solid var(--border-color); border-radius: 14px; padding: 7px; margin: 8px 0 24px 0; }
+[data-testid="stTabs"] button[role="tab"] { border-radius: 10px; border: 1px solid transparent; color: var(--text-secondary); font-weight: 600; padding: 10px 18px; transition: all 0.15s ease; }
+[data-testid="stTabs"] button[role="tab"]:hover { color: var(--text-primary); background: rgba(59,130,246,0.08); }
+[data-testid="stTabs"] button[role="tab"][aria-selected="true"] { color: white; background: linear-gradient(135deg, rgba(59,130,246,0.85), rgba(139,92,246,0.85)); border-color: rgba(96,165,250,0.35); box-shadow: 0 4px 14px rgba(59,130,246,0.22); }
+[data-testid="stTabs"] [data-baseweb="tab-highlight"], [data-testid="stTabs"] [data-baseweb="tab-border"] { display: none; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -604,138 +611,11 @@ hourly_delay_cost = st.sidebar.number_input(
 )
 
 
+
 # ============================================================
-# DONNÉES DU SYSTÈME (upload / benchmark)
+# ÉTAT ACTUEL DU JEU DE DONNÉES
 # ============================================================
 
-with st.expander("📁 Charger un autre système industriel (optionnel)"):
-
-    st.write(
-        "Le moteur d'optimisation est **générique** : il ne connaît aucun détail "
-        "propre à ce jeu de données. Dépose tes propres fichiers CSV pour tester "
-        "ton propre atelier de production, sans toucher au code."
-    )
-
-    col_u1, col_u2, col_u3 = st.columns(3)
-
-    with col_u1:
-        uploaded_orders = st.file_uploader(
-            "orders.csv / .xlsx", type=["csv", "xlsx"], key="upload_orders"
-        )
-
-    with col_u2:
-        uploaded_machines = st.file_uploader(
-            "machines.csv / .xlsx", type=["csv", "xlsx"], key="upload_machines"
-        )
-
-    with col_u3:
-        uploaded_operations = st.file_uploader(
-            "operations.csv / .xlsx", type=["csv", "xlsx"], key="upload_operations"
-        )
-
-    st.caption(
-        "**Formats acceptés** : .csv ou .xlsx (Excel). "
-        "**Colonnes attendues** — `orders.csv` : order_id, product_id, quantity, deadline · "
-        "`machines.csv` : machine_id, machine_name · "
-        "`operations.csv` : operation_id, product_id, operation_type, duration, compatible_machines "
-        "(format `M1|M2|M3` pour plusieurs machines compatibles)."
-    )
-
-    if uploaded_orders and uploaded_machines and uploaded_operations:
-
-        current_signature = (
-            uploaded_orders.name, uploaded_orders.size,
-            uploaded_machines.name, uploaded_machines.size,
-            uploaded_operations.name, uploaded_operations.size,
-        )
-
-        if st.session_state.get("data_signature") != current_signature:
-
-            try:
-                new_orders = read_uploaded_table(uploaded_orders)
-                new_machines = read_uploaded_table(uploaded_machines)
-                new_operations = read_uploaded_table(uploaded_operations)
-            except Exception as e:
-                st.error(f"Erreur de lecture des fichiers CSV : {e}")
-                new_orders = new_machines = new_operations = None
-
-            if new_orders is not None:
-
-                validation_errors = validate_uploaded_data(new_orders, new_machines, new_operations)
-
-                if validation_errors:
-                    st.error(
-                        "❌ Fichiers invalides, le système précédent reste actif :\n\n"
-                        + "\n".join(f"- {e}" for e in validation_errors)
-                    )
-                else:
-                    orders, machines, operations = new_orders, new_machines, new_operations
-
-                    st.session_state["custom_orders"] = orders
-                    st.session_state["custom_machines"] = machines
-                    st.session_state["custom_operations"] = operations
-                    st.session_state["data_signature"] = current_signature
-
-                    for key in [
-                        "baseline_kpis", "baseline_schedule", "scenario_kpis",
-                        "scenario_schedule", "comparison", "scenario_label", "mc_results",
-                    ]:
-                        st.session_state.pop(key, None)
-
-                    st.success(
-                        f"✅ Nouveau système chargé : {len(orders)} commandes, "
-                        f"{len(machines)} machines, {len(operations)} opérations. "
-                        f"Les résultats précédents ont été réinitialisés."
-                    )
-
-    elif uploaded_orders or uploaded_machines or uploaded_operations:
-        st.warning("Dépose les 3 fichiers ensemble (orders, machines, operations) pour charger un nouveau système.")
-
-    st.divider()
-
-    col_bench, col_default = st.columns(2)
-
-    with col_bench:
-        if st.button("🧪 Charger l'instance benchmark mk01 (Brandimarte)"):
-            try:
-                bench_orders, bench_machines, bench_operations = load_benchmark_mk01()
-            except FileNotFoundError:
-                st.error(
-                    "Fichier data/benchmark/mk01.json introuvable dans le dépôt."
-                )
-            else:
-                st.session_state["custom_orders"] = bench_orders
-                st.session_state["custom_machines"] = bench_machines
-                st.session_state["custom_operations"] = bench_operations
-                st.session_state["data_signature"] = "benchmark_mk01"
-
-                for key in [
-                    "baseline_kpis", "baseline_schedule", "scenario_kpis",
-                    "scenario_schedule", "comparison", "scenario_label", "mc_results",
-                ]:
-                    st.session_state.pop(key, None)
-
-                st.success(
-                    f"✅ Instance mk01 chargée : {len(bench_orders)} commandes, "
-                    f"{len(bench_machines)} machines, {len(bench_operations)} opérations "
-                    f"(référence académique Brandimarte, FJSP)."
-                )
-                st.rerun()
-
-    with col_default:
-        if "custom_orders" in st.session_state:
-            if st.button("↩️ Revenir au jeu de données par défaut"):
-                for key in [
-                    "custom_orders", "custom_machines", "custom_operations", "data_signature",
-                    "baseline_kpis", "baseline_schedule", "scenario_kpis",
-                    "scenario_schedule", "comparison", "scenario_label", "mc_results",
-                ]:
-                    st.session_state.pop(key, None)
-                st.rerun()
-
-
-# Si un jeu de données personnalisé est actif en session, il prend le pas
-# sur le jeu de données par défaut chargé plus haut.
 is_custom_dataset = "custom_orders" in st.session_state
 
 if is_custom_dataset:
@@ -743,8 +623,6 @@ if is_custom_dataset:
     machines = st.session_state["custom_machines"]
     operations = st.session_state["custom_operations"]
 
-
-# ============================================================
 # EN-TÊTE "HERO" (remplace le titre simple)
 # ============================================================
 
@@ -766,767 +644,896 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-
-col1, col2, col3, col4 = st.columns(4)
-
-with col1:
-    st.metric("Commandes", len(orders))
-
-with col2:
-    st.metric("Machines", len(machines))
-
-with col3:
-    st.metric("Opérations", len(operations))
-
-with col4:
-    st.metric("Produits", operations["product_id"].nunique())
-
-
-with st.expander("Voir les commandes"):
-    st.dataframe(orders, use_container_width=True)
-
-with st.expander("Voir les machines"):
-    st.dataframe(machines, use_container_width=True)
-
-with st.expander("Voir les opérations"):
-    st.dataframe(operations, use_container_width=True)
-
-
 # ============================================================
-# 1️⃣ OPTIMISATION SITUATION ACTUELLE
+# NAVIGATION PRINCIPALE
 # ============================================================
 
-section_header("01", "Situation actuelle", "🚀")
+tab_atelier, tab_situation, tab_scenario, tab_incertitude, tab_decision = st.tabs([
+    "🏭 Atelier",
+    "📊 Situation actuelle",
+    "⚙️ Scénario",
+    "🎲 Incertitude",
+    "🎯 Décision",
+])
 
+with tab_atelier:
 
-if st.button("🚀 Optimiser la situation actuelle", type="primary"):
+    # ============================================================
+    # DONNÉES DU SYSTÈME (upload / benchmark)
+    # ============================================================
 
-    with st.spinner("Optimisation de la situation actuelle..."):
-        baseline_tasks = create_tasks(orders, operations)
-        baseline_schedule = optimize_schedule(baseline_tasks)
+    with st.expander("📁 Charger un autre système industriel"):
 
-    if baseline_schedule is None:
-        st.error("Aucune solution trouvée pour la situation actuelle.")
-        st.stop()
+        st.write(
+            "Le moteur d'optimisation est **générique** : il ne connaît aucun détail "
+            "propre à ce jeu de données. Dépose tes propres fichiers CSV pour tester "
+            "ton propre atelier de production, sans toucher au code."
+        )
 
-    baseline_kpis = calculate_kpis(baseline_schedule, orders, machines)
+        col_u1, col_u2, col_u3 = st.columns(3)
 
-    st.session_state["baseline_schedule"] = baseline_schedule
-    st.session_state["baseline_kpis"] = baseline_kpis
+        with col_u1:
+            uploaded_orders = st.file_uploader(
+                "orders.csv / .xlsx", type=["csv", "xlsx"], key="upload_orders"
+            )
 
-    st.success("Optimisation de la situation actuelle terminée.")
+        with col_u2:
+            uploaded_machines = st.file_uploader(
+                "machines.csv / .xlsx", type=["csv", "xlsx"], key="upload_machines"
+            )
 
+        with col_u3:
+            uploaded_operations = st.file_uploader(
+                "operations.csv / .xlsx", type=["csv", "xlsx"], key="upload_operations"
+            )
 
-if "baseline_kpis" in st.session_state:
+        st.caption(
+            "**Formats acceptés** : .csv ou .xlsx (Excel). "
+            "**Colonnes attendues** — `orders.csv` : order_id, product_id, quantity, deadline · "
+            "`machines.csv` : machine_id, machine_name · "
+            "`operations.csv` : operation_id, product_id, operation_type, duration, compatible_machines "
+            "(format `M1|M2|M3` pour plusieurs machines compatibles)."
+        )
 
-    baseline_kpis = st.session_state["baseline_kpis"]
+        if uploaded_orders and uploaded_machines and uploaded_operations:
 
-    st.subheader("📈 KPI de la situation actuelle")
+            current_signature = (
+                uploaded_orders.name, uploaded_orders.size,
+                uploaded_machines.name, uploaded_machines.size,
+                uploaded_operations.name, uploaded_operations.size,
+            )
+
+            if st.session_state.get("data_signature") != current_signature:
+
+                try:
+                    new_orders = read_uploaded_table(uploaded_orders)
+                    new_machines = read_uploaded_table(uploaded_machines)
+                    new_operations = read_uploaded_table(uploaded_operations)
+                except Exception as e:
+                    st.error(f"Erreur de lecture des fichiers CSV : {e}")
+                    new_orders = new_machines = new_operations = None
+
+                if new_orders is not None:
+
+                    validation_errors = validate_uploaded_data(new_orders, new_machines, new_operations)
+
+                    if validation_errors:
+                        st.error(
+                            "❌ Fichiers invalides, le système précédent reste actif :\n\n"
+                            + "\n".join(f"- {e}" for e in validation_errors)
+                        )
+                    else:
+                        orders, machines, operations = new_orders, new_machines, new_operations
+
+                        st.session_state["custom_orders"] = orders
+                        st.session_state["custom_machines"] = machines
+                        st.session_state["custom_operations"] = operations
+                        st.session_state["data_signature"] = current_signature
+
+                        for key in [
+                            "baseline_kpis", "baseline_schedule", "scenario_kpis",
+                            "scenario_schedule", "comparison", "scenario_label", "mc_results",
+                        ]:
+                            st.session_state.pop(key, None)
+
+                        st.success(
+                            f"✅ Nouveau système chargé : {len(orders)} commandes, "
+                            f"{len(machines)} machines, {len(operations)} opérations. "
+                            f"Les résultats précédents ont été réinitialisés."
+                        )
+
+        elif uploaded_orders or uploaded_machines or uploaded_operations:
+            st.warning("Dépose les 3 fichiers ensemble (orders, machines, operations) pour charger un nouveau système.")
+
+        st.divider()
+
+        col_bench, col_default = st.columns(2)
+
+        with col_bench:
+            if st.button("🧪 Charger l'instance benchmark mk01 (Brandimarte)"):
+                try:
+                    bench_orders, bench_machines, bench_operations = load_benchmark_mk01()
+                except FileNotFoundError:
+                    st.error(
+                        "Fichier data/benchmark/mk01.json introuvable dans le dépôt."
+                    )
+                else:
+                    st.session_state["custom_orders"] = bench_orders
+                    st.session_state["custom_machines"] = bench_machines
+                    st.session_state["custom_operations"] = bench_operations
+                    st.session_state["data_signature"] = "benchmark_mk01"
+
+                    for key in [
+                        "baseline_kpis", "baseline_schedule", "scenario_kpis",
+                        "scenario_schedule", "comparison", "scenario_label", "mc_results",
+                    ]:
+                        st.session_state.pop(key, None)
+
+                    st.success(
+                        f"✅ Instance mk01 chargée : {len(bench_orders)} commandes, "
+                        f"{len(bench_machines)} machines, {len(bench_operations)} opérations "
+                        f"(référence académique Brandimarte, FJSP)."
+                    )
+                    st.rerun()
+
+        with col_default:
+            if "custom_orders" in st.session_state:
+                if st.button("↩️ Revenir au jeu de données par défaut"):
+                    for key in [
+                        "custom_orders", "custom_machines", "custom_operations", "data_signature",
+                        "baseline_kpis", "baseline_schedule", "scenario_kpis",
+                        "scenario_schedule", "comparison", "scenario_label", "mc_results",
+                    ]:
+                        st.session_state.pop(key, None)
+                    st.rerun()
+
+    # Synchronisation après un éventuel chargement depuis cette page.
+    is_custom_dataset = "custom_orders" in st.session_state
+    if is_custom_dataset:
+        orders = st.session_state["custom_orders"]
+        machines = st.session_state["custom_machines"]
+        operations = st.session_state["custom_operations"]
+
+    section_header("00", "Vue d'ensemble de l'atelier", "🏭")
 
     col1, col2, col3, col4 = st.columns(4)
 
     with col1:
-        st.metric("Makespan", f"{baseline_kpis['makespan']:.2f} h")
+        st.metric("Commandes", len(orders))
 
     with col2:
-        st.metric("Retard total", f"{baseline_kpis['total_delay']:.2f} h")
+        st.metric("Machines", len(machines))
 
     with col3:
-        st.metric(
-            "Commandes en retard",
-            f"{baseline_kpis['late_orders']} / {baseline_kpis['total_orders']}"
-        )
+        st.metric("Opérations", len(operations))
 
     with col4:
-        st.metric("Respect des délais", f"{baseline_kpis['on_time_rate']:.2f} %")
+        st.metric("Produits", operations["product_id"].nunique())
 
-    st.write(f"**Goulot actuel :** {baseline_kpis['bottleneck']}")
+    with st.expander("Voir les commandes"):
+        st.dataframe(orders, use_container_width=True)
+
+    with st.expander("Voir les machines"):
+        st.dataframe(machines, use_container_width=True)
+
+    with st.expander("Voir les opérations"):
+        st.dataframe(operations, use_container_width=True)
+
+with tab_situation:
+
+    section_header("01", "Situation actuelle", "🚀")
+
+    if st.button("🚀 Optimiser la situation actuelle", type="primary"):
+
+        with st.spinner("Optimisation de la situation actuelle..."):
+            baseline_tasks = create_tasks(orders, operations)
+            baseline_schedule = optimize_schedule(baseline_tasks)
+
+        if baseline_schedule is None:
+            st.error("Aucune solution trouvée pour la situation actuelle.")
+            st.stop()
+
+        baseline_kpis = calculate_kpis(baseline_schedule, orders, machines)
+
+        st.session_state["baseline_schedule"] = baseline_schedule
+        st.session_state["baseline_kpis"] = baseline_kpis
+
+        st.success("Optimisation de la situation actuelle terminée.")
+
+
+    if "baseline_kpis" in st.session_state:
+
+        baseline_kpis = st.session_state["baseline_kpis"]
+
+        st.subheader("📈 KPI de la situation actuelle")
+
+        col1, col2, col3, col4 = st.columns(4)
+
+        with col1:
+            st.metric("Makespan", f"{baseline_kpis['makespan']:.2f} h")
+
+        with col2:
+            st.metric("Retard total", f"{baseline_kpis['total_delay']:.2f} h")
+
+        with col3:
+            st.metric(
+                "Commandes en retard",
+                f"{baseline_kpis['late_orders']} / {baseline_kpis['total_orders']}"
+            )
+
+        with col4:
+            st.metric("Respect des délais", f"{baseline_kpis['on_time_rate']:.2f} %")
+
+        st.write(f"**Goulot actuel :** {baseline_kpis['bottleneck']}")
 
 
 
-# ============================================================
-# 2️⃣ CRÉATION DU SCÉNARIO
-# ============================================================
+with tab_scenario:
 
-section_header("02", "Création du scénario", "🎛️")
+    section_header("02", "Scénario & résultats", "🎛️")
 
-st.write("Choisissez le type de décision industrielle à tester.")
+    st.write("Choisissez le type de décision industrielle à tester.")
 
-scenario_type = st.radio(
-    "Type de scénario",
-    [
+    scenario_type = st.radio(
+        "Type de scénario",
+        [
+            "Modifier la durée d'une opération",
+            "Ajouter une machine compatible à une opération",
+            "Simuler une panne machine (indisponibilité temporaire)",
+            "Simuler un calendrier d'équipes (shift) sur une machine",
+        ],
+        horizontal=False,
+    )
+
+    machine_to_add = None
+    scenario_duration = None
+    current_duration = None
+    selected_operation = None
+    breakdown_machine = None
+    breakdown_start = None
+    breakdown_end = None
+
+    if scenario_type in [
         "Modifier la durée d'une opération",
         "Ajouter une machine compatible à une opération",
-        "Simuler une panne machine (indisponibilité temporaire)",
-        "Simuler un calendrier d'équipes (shift) sur une machine",
-    ],
-    horizontal=False,
-)
+    ]:
 
-machine_to_add = None
-scenario_duration = None
-current_duration = None
-selected_operation = None
-breakdown_machine = None
-breakdown_start = None
-breakdown_end = None
-
-if scenario_type in [
-    "Modifier la durée d'une opération",
-    "Ajouter une machine compatible à une opération",
-]:
-
-    selected_product = st.selectbox(
-        "Produit concerné",
-        sorted(operations["product_id"].unique())
-    )
-
-    operation_options = operations[
-        operations["product_id"] == selected_product
-    ]["operation_id"].tolist()
-
-    selected_operation = st.selectbox("Opération concernée", operation_options)
-
-    selected_row = operations[
-        operations["operation_id"] == selected_operation
-    ].iloc[0]
-
-    if scenario_type == "Modifier la durée d'une opération":
-
-        current_duration = float(selected_row["duration"])
-
-        scenario_duration = st.number_input(
-            "Nouvelle durée de l'opération (heures)",
-            min_value=0.001,
-            value=current_duration,
-            step=0.001,
-            format="%.3f"
+        selected_product = st.selectbox(
+            "Produit concerné",
+            sorted(operations["product_id"].unique())
         )
 
-        variation = (scenario_duration - current_duration) / current_duration * 100
+        operation_options = operations[
+            operations["product_id"] == selected_product
+        ]["operation_id"].tolist()
 
-        if variation < 0:
-            st.info(f"Amélioration simulée : {variation:.2f} %")
-        elif variation > 0:
-            st.warning(f"Dégradation simulée : +{variation:.2f} %")
-        else:
-            st.info("Aucune modification de durée.")
+        selected_operation = st.selectbox("Opération concernée", operation_options)
 
-    else:
+        selected_row = operations[
+            operations["operation_id"] == selected_operation
+        ].iloc[0]
 
-        current_machines = [
-            m.strip() for m in str(selected_row["compatible_machines"]).split("|")
-        ]
+        if scenario_type == "Modifier la durée d'une opération":
 
-        st.write(f"Machines actuellement compatibles : **{', '.join(current_machines)}**")
+            current_duration = float(selected_row["duration"])
 
-        available_machines = [
-            m for m in machines["machine_id"].tolist() if m not in current_machines
-        ]
-
-        if available_machines:
-            machine_to_add = st.selectbox(
-                "Machine à ajouter comme option pour cette opération",
-                available_machines
+            scenario_duration = st.number_input(
+                "Nouvelle durée de l'opération (heures)",
+                min_value=0.001,
+                value=current_duration,
+                step=0.001,
+                format="%.3f"
             )
-            st.info(
-                f"Cette opération pourra désormais aussi être réalisée sur "
-                f"**{machine_to_add}**, en plus de {', '.join(current_machines)}."
-            )
+
+            variation = (scenario_duration - current_duration) / current_duration * 100
+
+            if variation < 0:
+                st.info(f"Amélioration simulée : {variation:.2f} %")
+            elif variation > 0:
+                st.warning(f"Dégradation simulée : +{variation:.2f} %")
+            else:
+                st.info("Aucune modification de durée.")
+
         else:
-            st.warning("Toutes les machines existantes sont déjà compatibles avec cette opération.")
 
-elif scenario_type == "Simuler une panne machine (indisponibilité temporaire)":
+            current_machines = [
+                m.strip() for m in str(selected_row["compatible_machines"]).split("|")
+            ]
 
-    st.write(
-        "Simule l'indisponibilité temporaire d'une machine "
-        "(maintenance planifiée, panne...) et observe comment "
-        "le planning optimal se réorganise autour."
-    )
+            st.write(f"Machines actuellement compatibles : **{', '.join(current_machines)}**")
 
-    breakdown_machine = st.selectbox(
-        "Machine concernée",
-        machines["machine_id"].tolist()
-    )
+            available_machines = [
+                m for m in machines["machine_id"].tolist() if m not in current_machines
+            ]
 
-    col_a, col_b = st.columns(2)
-
-    with col_a:
-        breakdown_start = st.number_input(
-            "Début de l'indisponibilité (heures)",
-            min_value=0.0,
-            value=10.0,
-            step=1.0,
-        )
-
-    with col_b:
-        breakdown_end = st.number_input(
-            "Fin de l'indisponibilité (heures)",
-            min_value=0.0,
-            value=12.0,
-            step=1.0,
-        )
-
-    if breakdown_end <= breakdown_start:
-        st.warning("La fin de l'indisponibilité doit être après le début.")
-
-else:
-
-    st.write(
-        "Simule une machine qui ne travaille que sur une plage horaire "
-        "fixe chaque jour (ex: équipe unique 07h-15h), au lieu de tourner "
-        "en continu. Le reste du temps, la machine est indisponible."
-    )
-
-    shift_machine = st.selectbox(
-        "Machine concernée",
-        machines["machine_id"].tolist()
-    )
-
-    col_a, col_b = st.columns(2)
-
-    with col_a:
-        shift_start = st.number_input(
-            "Début de l'équipe (heure du cycle, 0-24)",
-            min_value=0,
-            max_value=24,
-            value=7,
-            step=1,
-        )
-
-    with col_b:
-        shift_end = st.number_input(
-            "Fin de l'équipe (heure du cycle, 0-24)",
-            min_value=0,
-            max_value=24,
-            value=15,
-            step=1,
-        )
-
-    if shift_end <= shift_start:
-        st.warning("La fin de l'équipe doit être après le début.")
-    else:
-        st.info(
-            f"La machine {shift_machine} ne sera disponible que de "
-            f"{shift_start}h à {shift_end}h, chaque jour (cycle de 24h), "
-            f"répété sur toute la durée du planning."
-        )
-
-
-st.subheader("💰 Coût estimé de ce scénario")
-
-st.caption(
-    "Valeurs par défaut illustratives, modifiables librement. Non calibrées "
-    "sur des données industrielles réelles — objectif : démontrer la méthode "
-    "de décision économique, pas fournir un chiffrage validé."
-)
-
-if scenario_type == "Modifier la durée d'une opération":
-    default_cost = 2000
-elif scenario_type == "Ajouter une machine compatible à une opération":
-    default_cost = 40000
-else:
-    default_cost = 0
-
-scenario_cost = st.number_input(
-    "Investissement nécessaire pour ce scénario (DH)",
-    min_value=0,
-    value=default_cost,
-    step=500,
-    help="⚠️ Valeur par défaut illustrative, à ajuster selon ton contexte réel. "
-         "Pour un ajout de machine, ceci représente typiquement un coût de "
-         "reconfiguration / outillage / formation pour qu'une machine EXISTANTE "
-         "puisse aussi réaliser cette opération — PAS l'achat d'une machine neuve "
-         "(qui coûterait généralement bien plus cher)."
-)
-
-
-if st.button("🔬 Simuler le scénario"):
-
-    if "baseline_kpis" not in st.session_state:
-        st.warning("Vous devez d'abord optimiser la situation actuelle.")
-        st.stop()
-
-    if scenario_type == "Ajouter une machine compatible à une opération" and machine_to_add is None:
-        st.warning("Aucune machine disponible à ajouter pour cette opération.")
-        st.stop()
-
-    if scenario_type == "Simuler une panne machine (indisponibilité temporaire)" and (
-        breakdown_end is None or breakdown_start is None or breakdown_end <= breakdown_start
-    ):
-        st.warning("Vérifie les horaires d'indisponibilité (fin doit être après début).")
-        st.stop()
-
-    if scenario_type == "Simuler un calendrier d'équipes (shift) sur une machine" and (
-        shift_end <= shift_start
-    ):
-        st.warning("Vérifie les horaires de l'équipe (fin doit être après début).")
-        st.stop()
-
-    scenario_operations = operations.copy()
-    machine_unavailability = None
-
-    if scenario_type == "Modifier la durée d'une opération":
-        scenario_operations.loc[
-            scenario_operations["operation_id"] == selected_operation, "duration"
-        ] = scenario_duration
-
-        scenario_label = (
-            f"Durée de {selected_operation} modifiée : "
-            f"{current_duration:.3f} h → {scenario_duration:.3f} h"
-        )
-
-    elif scenario_type == "Ajouter une machine compatible à une opération":
-        current_value = str(selected_row["compatible_machines"])
-        new_value = f"{current_value}|{machine_to_add}"
-
-        scenario_operations.loc[
-            scenario_operations["operation_id"] == selected_operation,
-            "compatible_machines"
-        ] = new_value
-
-        scenario_label = f"{machine_to_add} ajoutée comme machine compatible pour {selected_operation}"
+            if available_machines:
+                machine_to_add = st.selectbox(
+                    "Machine à ajouter comme option pour cette opération",
+                    available_machines
+                )
+                st.info(
+                    f"Cette opération pourra désormais aussi être réalisée sur "
+                    f"**{machine_to_add}**, en plus de {', '.join(current_machines)}."
+                )
+            else:
+                st.warning("Toutes les machines existantes sont déjà compatibles avec cette opération.")
 
     elif scenario_type == "Simuler une panne machine (indisponibilité temporaire)":
-        machine_unavailability = {
-            breakdown_machine: [(breakdown_start, breakdown_end)]
-        }
 
-        scenario_label = (
-            f"{breakdown_machine} indisponible de {breakdown_start:.0f}h "
-            f"à {breakdown_end:.0f}h"
+        st.write(
+            "Simule l'indisponibilité temporaire d'une machine "
+            "(maintenance planifiée, panne...) et observe comment "
+            "le planning optimal se réorganise autour."
         )
+
+        breakdown_machine = st.selectbox(
+            "Machine concernée",
+            machines["machine_id"].tolist()
+        )
+
+        col_a, col_b = st.columns(2)
+
+        with col_a:
+            breakdown_start = st.number_input(
+                "Début de l'indisponibilité (heures)",
+                min_value=0.0,
+                value=10.0,
+                step=1.0,
+            )
+
+        with col_b:
+            breakdown_end = st.number_input(
+                "Fin de l'indisponibilité (heures)",
+                min_value=0.0,
+                value=12.0,
+                step=1.0,
+            )
+
+        if breakdown_end <= breakdown_start:
+            st.warning("La fin de l'indisponibilité doit être après le début.")
 
     else:
-        shift_windows = generate_shift_unavailability_windows(shift_start, shift_end)
 
-        machine_unavailability = {
-            shift_machine: shift_windows
-        }
-
-        scenario_label = (
-            f"{shift_machine} en équipe unique {shift_start}h-{shift_end}h "
-            f"(au lieu de 24h/24)"
+        st.write(
+            "Simule une machine qui ne travaille que sur une plage horaire "
+            "fixe chaque jour (ex: équipe unique 07h-15h), au lieu de tourner "
+            "en continu. Le reste du temps, la machine est indisponible."
         )
 
-    st.caption(f"**Scénario testé :** {scenario_label}")
-
-    scenario_tasks = create_tasks(orders, scenario_operations)
-
-    with st.spinner("Optimisation du scénario..."):
-        scenario_schedule = optimize_schedule(
-            scenario_tasks,
-            machine_unavailability=machine_unavailability,
+        shift_machine = st.selectbox(
+            "Machine concernée",
+            machines["machine_id"].tolist()
         )
 
-    if scenario_schedule is None:
-        st.error("Aucune solution trouvée pour ce scénario.")
-        st.stop()
+        col_a, col_b = st.columns(2)
 
-    scenario_kpis = calculate_kpis(scenario_schedule, orders, machines)
+        with col_a:
+            shift_start = st.number_input(
+                "Début de l'équipe (heure du cycle, 0-24)",
+                min_value=0,
+                max_value=24,
+                value=7,
+                step=1,
+            )
 
-    baseline_kpis = st.session_state["baseline_kpis"]
-    comparison = compare_scenarios(baseline_kpis, scenario_kpis)
+        with col_b:
+            shift_end = st.number_input(
+                "Fin de l'équipe (heure du cycle, 0-24)",
+                min_value=0,
+                max_value=24,
+                value=15,
+                step=1,
+            )
 
-    st.session_state["scenario_schedule"] = scenario_schedule
-    st.session_state["scenario_kpis"] = scenario_kpis
-    st.session_state["comparison"] = comparison
-    st.session_state["scenario_label"] = scenario_label
-    st.session_state["scenario_cost"] = scenario_cost
+        if shift_end <= shift_start:
+            st.warning("La fin de l'équipe doit être après le début.")
+        else:
+            st.info(
+                f"La machine {shift_machine} ne sera disponible que de "
+                f"{shift_start}h à {shift_end}h, chaque jour (cycle de 24h), "
+                f"répété sur toute la durée du planning."
+            )
 
 
-# ============================================================
-# 3️⃣ RESULTATS DU SCENARIO
-# ============================================================
+    st.subheader("💰 Coût estimé de ce scénario")
 
-if "scenario_kpis" in st.session_state:
+    st.caption(
+        "Valeurs par défaut illustratives, modifiables librement. Non calibrées "
+        "sur des données industrielles réelles — objectif : démontrer la méthode "
+        "de décision économique, pas fournir un chiffrage validé."
+    )
 
-    scenario_kpis = st.session_state["scenario_kpis"]
-    comparison = st.session_state["comparison"]
-    baseline_kpis = st.session_state["baseline_kpis"]
+    if scenario_type == "Modifier la durée d'une opération":
+        default_cost = 2000
+    elif scenario_type == "Ajouter une machine compatible à une opération":
+        default_cost = 40000
+    else:
+        default_cost = 0
 
-    section_header("03", "Résultats de la simulation", "📊")
+    scenario_cost = st.number_input(
+        "Investissement nécessaire pour ce scénario (DH)",
+        min_value=0,
+        value=default_cost,
+        step=500,
+        help="⚠️ Valeur par défaut illustrative, à ajuster selon ton contexte réel. "
+             "Pour un ajout de machine, ceci représente typiquement un coût de "
+             "reconfiguration / outillage / formation pour qu'une machine EXISTANTE "
+             "puisse aussi réaliser cette opération — PAS l'achat d'une machine neuve "
+             "(qui coûterait généralement bien plus cher)."
+    )
 
-    st.subheader("📊 Comparaison des performances")
+
+    if st.button("🔬 Simuler le scénario"):
+
+        if "baseline_kpis" not in st.session_state:
+            st.warning("Vous devez d'abord optimiser la situation actuelle.")
+            st.stop()
+
+        if scenario_type == "Ajouter une machine compatible à une opération" and machine_to_add is None:
+            st.warning("Aucune machine disponible à ajouter pour cette opération.")
+            st.stop()
+
+        if scenario_type == "Simuler une panne machine (indisponibilité temporaire)" and (
+            breakdown_end is None or breakdown_start is None or breakdown_end <= breakdown_start
+        ):
+            st.warning("Vérifie les horaires d'indisponibilité (fin doit être après début).")
+            st.stop()
+
+        if scenario_type == "Simuler un calendrier d'équipes (shift) sur une machine" and (
+            shift_end <= shift_start
+        ):
+            st.warning("Vérifie les horaires de l'équipe (fin doit être après début).")
+            st.stop()
+
+        scenario_operations = operations.copy()
+        machine_unavailability = None
+
+        if scenario_type == "Modifier la durée d'une opération":
+            scenario_operations.loc[
+                scenario_operations["operation_id"] == selected_operation, "duration"
+            ] = scenario_duration
+
+            scenario_label = (
+                f"Durée de {selected_operation} modifiée : "
+                f"{current_duration:.3f} h → {scenario_duration:.3f} h"
+            )
+
+        elif scenario_type == "Ajouter une machine compatible à une opération":
+            current_value = str(selected_row["compatible_machines"])
+            new_value = f"{current_value}|{machine_to_add}"
+
+            scenario_operations.loc[
+                scenario_operations["operation_id"] == selected_operation,
+                "compatible_machines"
+            ] = new_value
+
+            scenario_label = f"{machine_to_add} ajoutée comme machine compatible pour {selected_operation}"
+
+        elif scenario_type == "Simuler une panne machine (indisponibilité temporaire)":
+            machine_unavailability = {
+                breakdown_machine: [(breakdown_start, breakdown_end)]
+            }
+
+            scenario_label = (
+                f"{breakdown_machine} indisponible de {breakdown_start:.0f}h "
+                f"à {breakdown_end:.0f}h"
+            )
+
+        else:
+            shift_windows = generate_shift_unavailability_windows(shift_start, shift_end)
+
+            machine_unavailability = {
+                shift_machine: shift_windows
+            }
+
+            scenario_label = (
+                f"{shift_machine} en équipe unique {shift_start}h-{shift_end}h "
+                f"(au lieu de 24h/24)"
+            )
+
+        st.caption(f"**Scénario testé :** {scenario_label}")
+
+        scenario_tasks = create_tasks(orders, scenario_operations)
+
+        with st.spinner("Optimisation du scénario..."):
+            scenario_schedule = optimize_schedule(
+                scenario_tasks,
+                machine_unavailability=machine_unavailability,
+            )
+
+        if scenario_schedule is None:
+            st.error("Aucune solution trouvée pour ce scénario.")
+            st.stop()
+
+        scenario_kpis = calculate_kpis(scenario_schedule, orders, machines)
+
+        baseline_kpis = st.session_state["baseline_kpis"]
+        comparison = compare_scenarios(baseline_kpis, scenario_kpis)
+
+        st.session_state["scenario_schedule"] = scenario_schedule
+        st.session_state["scenario_kpis"] = scenario_kpis
+        st.session_state["comparison"] = comparison
+        st.session_state["scenario_label"] = scenario_label
+        st.session_state["scenario_cost"] = scenario_cost
+    if "scenario_kpis" in st.session_state:
+
+        scenario_kpis = st.session_state["scenario_kpis"]
+        comparison = st.session_state["comparison"]
+        baseline_kpis = st.session_state["baseline_kpis"]
+
+        section_header("03", "Résultats de la simulation", "📊")
+
+        st.subheader("📊 Comparaison des performances")
+
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            st.metric(
+                "Makespan", f"{scenario_kpis['makespan']:.2f} h",
+                delta=f"{comparison['makespan_gain']:.2f} %"
+            )
+
+        with col2:
+            st.metric(
+                "Retard total", f"{scenario_kpis['total_delay']:.2f} h",
+                delta=f"{comparison['delay_gain']:.2f} %"
+            )
+
+        with col3:
+            st.metric(
+                "Respect des délais", f"{scenario_kpis['on_time_rate']:.2f} %",
+                delta=f"{comparison['on_time_change']:.2f} points"
+            )
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.metric("Commandes en retard - actuel", baseline_kpis["late_orders"])
+
+        with col2:
+            st.metric("Commandes en retard - scénario", scenario_kpis["late_orders"])
+
+        st.subheader("🔴 Analyse du goulot")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.write("**Situation actuelle**")
+            st.write(baseline_kpis["bottleneck"])
+            baseline_utilization = get_bottleneck_utilization(baseline_kpis)
+            if baseline_utilization is not None:
+                st.write(f"Utilisation : {baseline_utilization:.2f} %")
+
+        with col2:
+            st.write("**Scénario**")
+            st.write(scenario_kpis["bottleneck"])
+            scenario_utilization = get_bottleneck_utilization(scenario_kpis)
+            if scenario_utilization is not None:
+                st.write(f"Utilisation : {scenario_utilization:.2f} %")
+
+        st.subheader("📋 Tableau comparatif")
+
+        comparison_table = comparison["comparison"].copy()
+        st.dataframe(comparison_table, use_container_width=True)
+
+        st.subheader("📅 Planning comparé (Gantt)")
+
+        col_gantt1, col_gantt2 = st.columns(2)
+
+        with col_gantt1:
+            st.plotly_chart(
+                create_gantt_chart(
+                    st.session_state["baseline_schedule"],
+                    "Situation actuelle"
+                ),
+                use_container_width=True,
+            )
+
+        with col_gantt2:
+            st.plotly_chart(
+                create_gantt_chart(
+                    st.session_state["scenario_schedule"],
+                    "Scénario"
+                ),
+                use_container_width=True,
+            )
+
+        with st.expander("Voir le planning optimisé du scénario (données brutes)"):
+            scenario_schedule = st.session_state["scenario_schedule"]
+            st.dataframe(
+                scenario_schedule.sort_values(["machine", "start"]),
+                use_container_width=True
+            )
+
+        st.subheader("⬇️ Exporter les plannings")
+
+        col_dl1, col_dl2 = st.columns(2)
+
+        with col_dl1:
+            st.download_button(
+                "Télécharger le planning — Situation actuelle (CSV)",
+                data=st.session_state["baseline_schedule"].sort_values(["machine", "start"]).to_csv(index=False),
+                file_name="planning_situation_actuelle.csv",
+                mime="text/csv",
+            )
+
+        with col_dl2:
+            st.download_button(
+                "Télécharger le planning — Scénario (CSV)",
+                data=st.session_state["scenario_schedule"].sort_values(["machine", "start"]).to_csv(index=False),
+                file_name="planning_scenario.csv",
+                mime="text/csv",
+            )
+
+with tab_incertitude:
+
+    section_header("04", "Incertitude & robustesse", "🎲")
+
+    st.write(
+        "En réalité, les durées ne sont jamais parfaitement fixes "
+        "(variabilité opérateur, aléas machine...). Cette section relance "
+        "l'optimisation de la situation actuelle plusieurs fois avec des "
+        "durées légèrement aléatoires, pour obtenir une **fourchette** de "
+        "Makespan plutôt qu'un chiffre unique."
+    )
 
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        st.metric(
-            "Makespan", f"{scenario_kpis['makespan']:.2f} h",
-            delta=f"{comparison['makespan_gain']:.2f} %"
-        )
+        n_simulations = st.slider("Nombre de simulations", min_value=5, max_value=30, value=15)
 
     with col2:
-        st.metric(
-            "Retard total", f"{scenario_kpis['total_delay']:.2f} h",
-            delta=f"{comparison['delay_gain']:.2f} %"
-        )
+        variation_pct = st.slider("Variation des durées (%)", min_value=5, max_value=30, value=15)
 
     with col3:
-        st.metric(
-            "Respect des délais", f"{scenario_kpis['on_time_rate']:.2f} %",
-            delta=f"{comparison['on_time_change']:.2f} points"
-        )
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.metric("Commandes en retard - actuel", baseline_kpis["late_orders"])
-
-    with col2:
-        st.metric("Commandes en retard - scénario", scenario_kpis["late_orders"])
-
-    st.subheader("🔴 Analyse du goulot")
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.write("**Situation actuelle**")
-        st.write(baseline_kpis["bottleneck"])
-        baseline_utilization = get_bottleneck_utilization(baseline_kpis)
-        if baseline_utilization is not None:
-            st.write(f"Utilisation : {baseline_utilization:.2f} %")
-
-    with col2:
-        st.write("**Scénario**")
-        st.write(scenario_kpis["bottleneck"])
-        scenario_utilization = get_bottleneck_utilization(scenario_kpis)
-        if scenario_utilization is not None:
-            st.write(f"Utilisation : {scenario_utilization:.2f} %")
-
-    st.subheader("📋 Tableau comparatif")
-
-    comparison_table = comparison["comparison"].copy()
-    st.dataframe(comparison_table, use_container_width=True)
-
-    st.subheader("📅 Planning comparé (Gantt)")
-
-    col_gantt1, col_gantt2 = st.columns(2)
-
-    with col_gantt1:
-        st.plotly_chart(
-            create_gantt_chart(
-                st.session_state["baseline_schedule"],
-                "Situation actuelle"
-            ),
-            use_container_width=True,
-        )
-
-    with col_gantt2:
-        st.plotly_chart(
-            create_gantt_chart(
-                st.session_state["scenario_schedule"],
-                "Scénario"
-            ),
-            use_container_width=True,
-        )
-
-    with st.expander("Voir le planning optimisé du scénario (données brutes)"):
-        scenario_schedule = st.session_state["scenario_schedule"]
-        st.dataframe(
-            scenario_schedule.sort_values(["machine", "start"]),
-            use_container_width=True
-        )
-
-    st.subheader("⬇️ Exporter les plannings")
-
-    col_dl1, col_dl2 = st.columns(2)
-
-    with col_dl1:
-        st.download_button(
-            "Télécharger le planning — Situation actuelle (CSV)",
-            data=st.session_state["baseline_schedule"].sort_values(["machine", "start"]).to_csv(index=False),
-            file_name="planning_situation_actuelle.csv",
-            mime="text/csv",
-        )
-
-    with col_dl2:
-        st.download_button(
-            "Télécharger le planning — Scénario (CSV)",
-            data=st.session_state["scenario_schedule"].sort_values(["machine", "start"]).to_csv(index=False),
-            file_name="planning_scenario.csv",
-            mime="text/csv",
-        )
-
-
-# ============================================================
-# 4️⃣ ANALYSE DE L'INCERTITUDE (MONTE CARLO)
-# ============================================================
-
-st.divider()
-section_header("04", "Analyse de l'incertitude (Monte Carlo)", "🎲")
-
-st.write(
-    "En réalité, les durées ne sont jamais parfaitement fixes "
-    "(variabilité opérateur, aléas machine...). Cette section relance "
-    "l'optimisation de la situation actuelle plusieurs fois avec des "
-    "durées légèrement aléatoires, pour obtenir une **fourchette** de "
-    "Makespan plutôt qu'un chiffre unique."
-)
-
-col1, col2, col3 = st.columns(3)
-
-with col1:
-    n_simulations = st.slider("Nombre de simulations", min_value=5, max_value=30, value=15)
-
-with col2:
-    variation_pct = st.slider("Variation des durées (%)", min_value=5, max_value=30, value=15)
-
-with col3:
-    target_makespan = st.number_input(
-        "Objectif Makespan cible (h)",
-        min_value=0.0,
-        value=90.0,
-        step=5.0,
-        help="Calcule la probabilité que le Makespan réel reste sous ce seuil."
-    )
-
-st.caption(
-    f"⏱️ Chaque simulation est limitée à 30 secondes de calcul pour rester "
-    f"gérable ({n_simulations} simulations : jusqu'à "
-    f"{n_simulations * 30 // 60} min dans le pire des cas)."
-)
-
-if st.button("🎲 Lancer l'analyse Monte Carlo"):
-
-    makespans = []
-    progress_bar = st.progress(0.0)
-    status_text = st.empty()
-
-    for i in range(n_simulations):
-        status_text.text(f"Simulation {i + 1} / {n_simulations}...")
-
-        randomized_operations = operations.copy()
-        factors = [
-            random.uniform(1 - variation_pct / 100, 1 + variation_pct / 100)
-            for _ in range(len(randomized_operations))
-        ]
-        randomized_operations["duration"] = (
-            randomized_operations["duration"].values * np.array(factors)
-        )
-
-        tasks_mc = create_tasks(orders, randomized_operations)
-        schedule_mc = optimize_schedule(tasks_mc, time_limit=30)
-
-        if schedule_mc is not None:
-            makespans.append(float(schedule_mc["end"].max()))
-
-        progress_bar.progress((i + 1) / n_simulations)
-
-    status_text.empty()
-    progress_bar.empty()
-
-    if len(makespans) == 0:
-        st.error("Aucune simulation n'a abouti à une solution exploitable.")
-    else:
-        makespans_array = np.array(makespans)
-
-        probability_target = float((makespans_array <= target_makespan).mean() * 100)
-
-        st.session_state["mc_results"] = {
-            "makespans": makespans_array,
-            "n_simulations": n_simulations,
-            "n_valid": len(makespans),
-            "variation_pct": variation_pct,
-            "target_makespan": target_makespan,
-            "probability_target": probability_target,
-        }
-
-        st.success(f"{len(makespans)} / {n_simulations} simulations exploitables.")
-
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Makespan minimum", f"{makespans_array.min():.2f} h")
-        c2.metric("Makespan moyen", f"{makespans_array.mean():.2f} h")
-        c3.metric("Makespan maximum", f"{makespans_array.max():.2f} h")
-        c4.metric("Écart-type", f"{makespans_array.std():.2f} h")
-
-        if probability_target >= 70:
-            st.success(
-                f"🎯 **{probability_target:.0f}% de chances** de terminer avant "
-                f"{target_makespan:.0f}h."
-            )
-        elif probability_target >= 40:
-            st.warning(
-                f"🎯 **{probability_target:.0f}% de chances** de terminer avant "
-                f"{target_makespan:.0f}h."
-            )
-        else:
-            st.error(
-                f"🎯 Seulement **{probability_target:.0f}% de chances** de terminer "
-                f"avant {target_makespan:.0f}h."
-            )
-
-        st.bar_chart(pd.DataFrame({"Makespan (h)": makespans_array}))
-
-        st.caption(
-            f"Avec ±{variation_pct}% de variabilité sur les durées, le "
-            f"Makespan réel a de bonnes chances de se situer entre "
-            f"{makespans_array.min():.1f}h et {makespans_array.max():.1f}h, "
-            f"plutôt que d'être exactement la valeur déterministe calculée "
-            f"en section 1."
-        )
-
-
-# ============================================================
-# 5️⃣ DÉCISION FINALE
-# ============================================================
-
-if "scenario_kpis" in st.session_state:
-
-    st.divider()
-    section_header("05", "Décision finale", "🏆")
-
-    comparison = st.session_state["comparison"]
-    scenario_label = st.session_state["scenario_label"]
-    recommendation = comparison["recommendation"]
-
-    if recommendation == "SCÉNARIO FAVORABLE":
-        st.success(f"✅ {recommendation}")
-    elif recommendation == "SCÉNARIO À ÉTUDIER":
-        st.warning(f"⚠️ {recommendation}")
-    else:
-        st.error(f"❌ {recommendation}")
-
-    st.markdown(generate_decision_sentence(comparison, scenario_label))
-
-    st.subheader("🎯 Score de décision multicritère")
-
-    decision_score = compute_decision_score(baseline_kpis, scenario_kpis, comparison)
-
-    score_col, detail_col = st.columns([1, 2])
-
-    with score_col:
-        st.metric("Score global", f"{decision_score['total']:.0f} / 100")
-
-    with detail_col:
-        st.write(
-            f"Respect délais (40%) : {decision_score['score_delais']:.0f}/100 · "
-            f"Retard (30%) : {decision_score['score_retard']:.0f}/100"
-        )
-        st.write(
-            f"Makespan (20%) : {decision_score['score_makespan']:.0f}/100 · "
-            f"Équilibre machines (10%) : {decision_score['score_equilibre']:.0f}/100"
+        target_makespan = st.number_input(
+            "Objectif Makespan cible (h)",
+            min_value=0.0,
+            value=90.0,
+            step=5.0,
+            help="Calcule la probabilité que le Makespan réel reste sous ce seuil."
         )
 
     st.caption(
-        "⚠️ Pondérations et échelle de score illustratives (non calibrées "
-        "sur un cas industriel réel), pour synthétiser plusieurs KPI en un "
-        "seul chiffre lisible par un décideur pressé."
+        f"⏱️ Chaque simulation est limitée à 30 secondes de calcul pour rester "
+        f"gérable ({n_simulations} simulations : jusqu'à "
+        f"{n_simulations * 30 // 60} min dans le pire des cas)."
     )
 
-    st.subheader("💰 Analyse économique")
+    if st.button("🎲 Lancer l'analyse Monte Carlo"):
 
-    economics = compute_economic_analysis(
-        baseline_kpis,
-        scenario_kpis,
-        st.session_state.get("scenario_cost", 0),
-        hourly_production_value,
-        hourly_delay_cost,
-    )
+        makespans = []
+        progress_bar = st.progress(0.0)
+        status_text = st.empty()
 
-    e1, e2, e3 = st.columns(3)
+        for i in range(n_simulations):
+            status_text.text(f"Simulation {i + 1} / {n_simulations}...")
 
-    e1.metric("Investissement", f"{economics['cost']:,.0f} DH")
-    e2.metric("Gain financier estimé", f"{economics['financial_gain']:,.0f} DH")
+            randomized_operations = operations.copy()
+            factors = [
+                random.uniform(1 - variation_pct / 100, 1 + variation_pct / 100)
+                for _ in range(len(randomized_operations))
+            ]
+            randomized_operations["duration"] = (
+                randomized_operations["duration"].values * np.array(factors)
+            )
 
-    if economics["roi_pct"] is not None:
-        e3.metric("ROI", f"{economics['roi_pct']:+.0f} %")
-    else:
-        e3.metric("ROI", "—")
+            tasks_mc = create_tasks(orders, randomized_operations)
+            schedule_mc = optimize_schedule(tasks_mc, time_limit=30)
 
-    if economics["cost"] > 0:
-        if economics["net_gain"] > 0:
-            st.success(
-                f"✅ Investissement rentable : gain net estimé de "
-                f"**{economics['net_gain']:,.0f} DH** après déduction du coût "
-                f"({economics['makespan_gain_hours']:.1f}h de Makespan et "
-                f"{economics['delay_gain_hours']:.1f}h de retard économisées)."
+            if schedule_mc is not None:
+                makespans.append(float(schedule_mc["end"].max()))
+
+            progress_bar.progress((i + 1) / n_simulations)
+
+        status_text.empty()
+        progress_bar.empty()
+
+        if len(makespans) == 0:
+            st.error("Aucune simulation n'a abouti à une solution exploitable.")
+        else:
+            makespans_array = np.array(makespans)
+
+            probability_target = float((makespans_array <= target_makespan).mean() * 100)
+
+            st.session_state["mc_results"] = {
+                "makespans": makespans_array,
+                "n_simulations": n_simulations,
+                "n_valid": len(makespans),
+                "variation_pct": variation_pct,
+                "target_makespan": target_makespan,
+                "probability_target": probability_target,
+            }
+
+            st.success(f"{len(makespans)} / {n_simulations} simulations exploitables.")
+
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Makespan minimum", f"{makespans_array.min():.2f} h")
+            c2.metric("Makespan moyen", f"{makespans_array.mean():.2f} h")
+            c3.metric("Makespan maximum", f"{makespans_array.max():.2f} h")
+            c4.metric("Écart-type", f"{makespans_array.std():.2f} h")
+
+            if probability_target >= 70:
+                st.success(
+                    f"🎯 **{probability_target:.0f}% de chances** de terminer avant "
+                    f"{target_makespan:.0f}h."
+                )
+            elif probability_target >= 40:
+                st.warning(
+                    f"🎯 **{probability_target:.0f}% de chances** de terminer avant "
+                    f"{target_makespan:.0f}h."
+                )
+            else:
+                st.error(
+                    f"🎯 Seulement **{probability_target:.0f}% de chances** de terminer "
+                    f"avant {target_makespan:.0f}h."
+                )
+
+            st.bar_chart(pd.DataFrame({"Makespan (h)": makespans_array}))
+
+            st.caption(
+                f"Avec ±{variation_pct}% de variabilité sur les durées, le "
+                f"Makespan réel a de bonnes chances de se situer entre "
+                f"{makespans_array.min():.1f}h et {makespans_array.max():.1f}h, "
+                f"plutôt que d'être exactement la valeur déterministe calculée "
+                f"en section 1."
+            )
+
+with tab_decision:
+
+    section_header("05", "Décision finale", "🎯")
+
+    if "scenario_kpis" in st.session_state:
+        scenario_kpis = st.session_state["scenario_kpis"]
+        baseline_kpis = st.session_state["baseline_kpis"]
+
+        comparison = st.session_state["comparison"]
+        scenario_label = st.session_state["scenario_label"]
+        recommendation = comparison["recommendation"]
+
+        if recommendation == "SCÉNARIO FAVORABLE":
+            st.success(f"✅ {recommendation}")
+        elif recommendation == "SCÉNARIO À ÉTUDIER":
+            st.warning(f"⚠️ {recommendation}")
+        else:
+            st.error(f"❌ {recommendation}")
+
+        st.markdown(generate_decision_sentence(comparison, scenario_label))
+
+        st.subheader("🎯 Score de décision multicritère")
+
+        decision_score = compute_decision_score(baseline_kpis, scenario_kpis, comparison)
+
+        score_col, detail_col = st.columns([1, 2])
+
+        with score_col:
+            st.metric("Score global", f"{decision_score['total']:.0f} / 100")
+
+        with detail_col:
+            st.write(
+                f"Respect délais (40%) : {decision_score['score_delais']:.0f}/100 · "
+                f"Retard (30%) : {decision_score['score_retard']:.0f}/100"
+            )
+            st.write(
+                f"Makespan (20%) : {decision_score['score_makespan']:.0f}/100 · "
+                f"Équilibre machines (10%) : {decision_score['score_equilibre']:.0f}/100"
+            )
+
+        st.caption(
+            "⚠️ Pondérations et échelle de score illustratives (non calibrées "
+            "sur un cas industriel réel), pour synthétiser plusieurs KPI en un "
+            "seul chiffre lisible par un décideur pressé."
+        )
+
+        st.subheader("💰 Analyse économique")
+
+        economics = compute_economic_analysis(
+            baseline_kpis,
+            scenario_kpis,
+            st.session_state.get("scenario_cost", 0),
+            hourly_production_value,
+            hourly_delay_cost,
+        )
+
+        e1, e2, e3 = st.columns(3)
+
+        e1.metric("Investissement", f"{economics['cost']:,.0f} DH")
+        e2.metric("Gain financier estimé", f"{economics['financial_gain']:,.0f} DH")
+
+        if economics["roi_pct"] is not None:
+            e3.metric("ROI", f"{economics['roi_pct']:+.0f} %")
+        else:
+            e3.metric("ROI", "—")
+
+        if economics["cost"] > 0:
+            if economics["net_gain"] > 0:
+                st.success(
+                    f"✅ Investissement rentable : gain net estimé de "
+                    f"**{economics['net_gain']:,.0f} DH** après déduction du coût "
+                    f"({economics['makespan_gain_hours']:.1f}h de Makespan et "
+                    f"{economics['delay_gain_hours']:.1f}h de retard économisées)."
+                )
+            else:
+                st.warning(
+                    f"⚠️ Sur la base des paramètres actuels, le gain financier estimé "
+                    f"({economics['financial_gain']:,.0f} DH) ne couvre pas "
+                    f"l'investissement ({economics['cost']:,.0f} DH)."
+                )
+
+        st.caption(
+            "💡 Estimation basée sur les paramètres économiques réglables dans la "
+            "barre latérale (valeur horaire de production, coût horaire de retard). "
+            "Ajuste-les pour refléter la réalité de ton contexte industriel."
+        )
+
+        if "mc_results" in st.session_state:
+            mc = st.session_state["mc_results"]
+            st.caption(
+                f"🎲 Pour rappel, l'analyse Monte Carlo ({mc['n_valid']} simulations, "
+                f"±{mc['variation_pct']}% de variabilité) montre que le Makespan réel "
+                f"de la situation actuelle peut varier entre "
+                f"{mc['makespans'].min():.1f}h et {mc['makespans'].max():.1f}h "
+                f"(probabilité de rester sous {mc.get('target_makespan', 0):.0f}h : "
+                f"{mc.get('probability_target', 0):.0f}%) — "
+                f"à garder en tête pour relativiser la précision du chiffre déterministe "
+                f"ci-dessus."
             )
         else:
-            st.warning(
-                f"⚠️ Sur la base des paramètres actuels, le gain financier estimé "
-                f"({economics['financial_gain']:,.0f} DH) ne couvre pas "
-                f"l'investissement ({economics['cost']:,.0f} DH)."
+            st.caption(
+                "💡 Lance l'analyse Monte Carlo (section 4️⃣) pour connaître la "
+                "fourchette de risque associée à ce résultat."
             )
 
-    st.caption(
-        "💡 Estimation basée sur les paramètres économiques réglables dans la "
-        "barre latérale (valeur horaire de production, coût horaire de retard). "
-        "Ajuste-les pour refléter la réalité de ton contexte industriel."
-    )
+        st.subheader("📄 Résumé exportable")
 
-    if "mc_results" in st.session_state:
-        mc = st.session_state["mc_results"]
-        st.caption(
-            f"🎲 Pour rappel, l'analyse Monte Carlo ({mc['n_valid']} simulations, "
-            f"±{mc['variation_pct']}% de variabilité) montre que le Makespan réel "
-            f"de la situation actuelle peut varier entre "
-            f"{mc['makespans'].min():.1f}h et {mc['makespans'].max():.1f}h "
-            f"(probabilité de rester sous {mc.get('target_makespan', 0):.0f}h : "
-            f"{mc.get('probability_target', 0):.0f}%) — "
-            f"à garder en tête pour relativiser la précision du chiffre déterministe "
-            f"ci-dessus."
-        )
-    else:
-        st.caption(
-            "💡 Lance l'analyse Monte Carlo (section 4️⃣) pour connaître la "
-            "fourchette de risque associée à ce résultat."
-        )
-
-    st.subheader("📄 Résumé exportable")
-
-    summary_lines = [
-        "INDUSTRIAL WHAT-IF SIMULATOR — RÉSUMÉ DE DÉCISION",
-        "=" * 55,
-        "",
-        f"Scénario testé : {scenario_label}",
-        f"Décision : {recommendation}",
-        "",
-        generate_decision_sentence(comparison, scenario_label).replace("**", ""),
-        "",
-        "--- Comparaison des performances ---",
-        f"Makespan       : {baseline_kpis['makespan']:.2f} h -> {scenario_kpis['makespan']:.2f} h "
-        f"({comparison['makespan_gain']:+.1f} %)",
-        f"Retard total   : {baseline_kpis['total_delay']:.2f} h -> {scenario_kpis['total_delay']:.2f} h "
-        f"({comparison['delay_gain']:+.1f} %)",
-        f"Respect délais : {baseline_kpis['on_time_rate']:.2f} % -> {scenario_kpis['on_time_rate']:.2f} % "
-        f"({comparison['on_time_change']:+.1f} points)",
-        f"Goulot actuel  : {baseline_kpis['bottleneck']}",
-        f"Goulot scénario: {scenario_kpis['bottleneck']}",
-        "",
-        "--- Analyse économique ---",
-        f"Investissement      : {economics['cost']:,.0f} DH",
-        f"Gain financier estimé : {economics['financial_gain']:,.0f} DH",
-        f"ROI : {economics['roi_pct']:+.0f} %" if economics["roi_pct"] is not None else "ROI : —",
-    ]
-
-    if "mc_results" in st.session_state:
-        mc = st.session_state["mc_results"]
-        summary_lines += [
+        summary_lines = [
+            "INDUSTRIAL WHAT-IF SIMULATOR — RÉSUMÉ DE DÉCISION",
+            "=" * 55,
             "",
-            "--- Analyse Monte Carlo (situation actuelle) ---",
-            f"{mc['n_valid']} simulations, ±{mc['variation_pct']}% de variabilité",
-            f"Makespan observé entre {mc['makespans'].min():.1f} h et {mc['makespans'].max():.1f} h",
+            f"Scénario testé : {scenario_label}",
+            f"Décision : {recommendation}",
+            "",
+            generate_decision_sentence(comparison, scenario_label).replace("**", ""),
+            "",
+            "--- Comparaison des performances ---",
+            f"Makespan       : {baseline_kpis['makespan']:.2f} h -> {scenario_kpis['makespan']:.2f} h "
+            f"({comparison['makespan_gain']:+.1f} %)",
+            f"Retard total   : {baseline_kpis['total_delay']:.2f} h -> {scenario_kpis['total_delay']:.2f} h "
+            f"({comparison['delay_gain']:+.1f} %)",
+            f"Respect délais : {baseline_kpis['on_time_rate']:.2f} % -> {scenario_kpis['on_time_rate']:.2f} % "
+            f"({comparison['on_time_change']:+.1f} points)",
+            f"Goulot actuel  : {baseline_kpis['bottleneck']}",
+            f"Goulot scénario: {scenario_kpis['bottleneck']}",
+            "",
+            "--- Analyse économique ---",
+            f"Investissement      : {economics['cost']:,.0f} DH",
+            f"Gain financier estimé : {economics['financial_gain']:,.0f} DH",
+            f"ROI : {economics['roi_pct']:+.0f} %" if economics["roi_pct"] is not None else "ROI : —",
         ]
 
-    summary_text = "\n".join(summary_lines)
+        if "mc_results" in st.session_state:
+            mc = st.session_state["mc_results"]
+            summary_lines += [
+                "",
+                "--- Analyse Monte Carlo (situation actuelle) ---",
+                f"{mc['n_valid']} simulations, ±{mc['variation_pct']}% de variabilité",
+                f"Makespan observé entre {mc['makespans'].min():.1f} h et {mc['makespans'].max():.1f} h",
+            ]
 
-    st.download_button(
-        "⬇️ Télécharger le résumé de la décision (texte)",
-        data=summary_text,
-        file_name="resume_decision.txt",
-        mime="text/plain",
-    )
+        summary_text = "\n".join(summary_lines)
 
-else:
-    st.divider()
-    section_header("05", "Décision finale", "🏆")
-    st.info(
-        "Optimise la situation actuelle puis simule un scénario "
-        "(sections 1️⃣ et 2️⃣) pour obtenir une décision finale."
-    )
-
+        st.download_button(
+            "⬇️ Télécharger le résumé de la décision (texte)",
+            data=summary_text,
+            file_name="resume_decision.txt",
+            mime="text/plain",
+        )
+    else:
+        st.info(
+            "Optimise la situation actuelle puis simule un scénario "
+            "dans les onglets 'Situation actuelle' et 'Scénario' pour obtenir "
+            "une décision finale."
+        )
 
 # ============================================================
 # FOOTER
