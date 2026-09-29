@@ -1,6 +1,6 @@
 streamlit>=1.30.0
 pandas>=2.0.0
 numpy>=1.24.0
-pulp>=2.7.0
+pulp==3.3.2
 plotly>=5.18.0
 openpyxl>=3.1.0
