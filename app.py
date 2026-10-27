@@ -1089,9 +1089,13 @@ with tab_scenario:
         machine_unavailability = None
 
         if scenario_type == "Modifier la durée d'une opération":
-            scenario_operations.loc[
-                scenario_operations["operation_id"] == selected_operation, "duration"
-            ] = scenario_duration
+            from src.analysis.scenario_generator import create_scenario
+
+            scenario_operations = create_scenario(
+                scenario_operations,
+                selected_operation,
+                scenario_duration / current_duration
+            )
 
             scenario_label = (
                 f"Durée de {selected_operation} modifiée : "
@@ -1099,13 +1103,13 @@ with tab_scenario:
             )
 
         elif scenario_type == "Ajouter une machine compatible à une opération":
-            current_value = str(selected_row["compatible_machines"])
-            new_value = f"{current_value}|{machine_to_add}"
+            from src.analysis.scenario_generator import add_machine_to_operation
 
-            scenario_operations.loc[
-                scenario_operations["operation_id"] == selected_operation,
-                "compatible_machines"
-            ] = new_value
+            scenario_operations = add_machine_to_operation(
+                scenario_operations,
+                selected_operation,
+                machine_to_add
+            )
 
             scenario_label = f"{machine_to_add} ajoutée comme machine compatible pour {selected_operation}"
 
@@ -1314,8 +1318,11 @@ with tab_incertitude:
                 random.uniform(1 - variation_pct / 100, 1 + variation_pct / 100)
                 for _ in range(len(randomized_operations))
             ]
-            randomized_operations["duration"] = (
-                randomized_operations["duration"].values * np.array(factors)
+            from src.analysis.scenario_generator import scale_operations_durations
+
+            randomized_operations = scale_operations_durations(
+                randomized_operations,
+                factors
             )
 
             tasks_mc = create_tasks(orders, randomized_operations)
