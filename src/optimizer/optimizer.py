@@ -86,12 +86,64 @@ def load_data():
 
 
 # ============================================================
+# DUREES PAR MACHINE (etape 2b)
+# ============================================================
+
+def parse_machine_durations(raw_value, compatible_machines, default_duration):
+    """
+    Lit une chaîne "M1:5|M3:4" et renvoie {"M1": 5.0, "M3": 4.0}.
+
+    Compatibilité arrière : si la valeur est absente ou vide, toutes les
+    machines compatibles prennent default_duration.
+    """
+
+    if raw_value is None or pd.isna(raw_value) or str(raw_value).strip() == "":
+        return {machine: default_duration for machine in compatible_machines}
+
+    durations = {}
+
+    for item in str(raw_value).split("|"):
+        machine, _, value_text = item.strip().partition(":")
+        durations[machine.strip()] = float(value_text)
+
+    # Sécurité : chaque machine compatible doit avoir une durée
+    missing = [m for m in compatible_machines if m not in durations]
+    if missing:
+        raise ValueError(
+            f"machine_durations incomplet : durée manquante pour {missing}"
+        )
+
+    return durations
+
+
+def get_task_durations(task):
+    """
+    Renvoie {machine: durée} pour une tâche (ligne du DataFrame des tâches).
+
+    Compatibilité arrière : si la colonne machine_durations est absente ou
+    vide, toutes les machines compatibles prennent la durée unique "duration".
+    """
+
+    durations = task["machine_durations"] if "machine_durations" in task else None
+
+    if isinstance(durations, dict) and durations:
+        return durations
+
+    return {
+        machine: float(task["duration"])
+        for machine in task["compatible_machines"]
+    }
+
+
+# ============================================================
 # CREATION DES TACHES
 # ============================================================
 
 def create_tasks(orders, operations):
 
     tasks = []
+
+    has_machine_durations = "machine_durations" in operations.columns
 
     for _, order in orders.iterrows():
 
@@ -112,10 +164,29 @@ def create_tasks(orders, operations):
                 ).split("|")
             ]
 
+            quantity = float(order["quantity"])
+
             duration = (
-                float(order["quantity"])
+                quantity
                 * float(operation["duration"])
             )
+
+            raw_durations = (
+                operation["machine_durations"]
+                if has_machine_durations
+                else None
+            )
+
+            per_machine_unit = parse_machine_durations(
+                raw_durations,
+                compatible_machines,
+                float(operation["duration"])
+            )
+
+            machine_durations = {
+                machine: quantity * unit_duration
+                for machine, unit_duration in per_machine_unit.items()
+            }
 
             tasks.append({
 
@@ -139,10 +210,13 @@ def create_tasks(orders, operations):
                     operation["operation_type"],
 
                 "quantity":
-                    float(order["quantity"]),
+                    quantity,
 
                 "duration":
                     duration,
+
+                "machine_durations":
+                    machine_durations,
 
                 "compatible_machines":
                     compatible_machines,
@@ -182,8 +256,15 @@ def optimize_schedule(tasks, time_limit=None, machine_unavailability=None):
         LpMinimize
     )
 
+    # Horizon = somme des durées MAX possibles de chaque tâche (borne sûre
+    # même si une tâche est plus longue sur certaines machines).
     horizon = (
-        float(tasks["duration"].sum())
+        float(
+            sum(
+                max(get_task_durations(t).values())
+                for t in tasks.to_dict("records")
+            )
+        )
         + 10
     )
 
@@ -198,7 +279,7 @@ def optimize_schedule(tasks, time_limit=None, machine_unavailability=None):
     for _, task in tasks.iterrows():
 
         task_id = task["task_id"]
-        duration = float(task["duration"])
+        task_durations = get_task_durations(task)
 
         start[task_id] = LpVariable(
             f"start_{task_id}",
@@ -210,11 +291,6 @@ def optimize_schedule(tasks, time_limit=None, machine_unavailability=None):
             f"end_{task_id}",
             lowBound=0,
             upBound=horizon
-        )
-
-        model += (
-            end[task_id]
-            == start[task_id] + duration
         )
 
         for machine in task["compatible_machines"]:
@@ -234,6 +310,18 @@ def optimize_schedule(tasks, time_limit=None, machine_unavailability=None):
                 for machine in task["compatible_machines"]
             )
             == 1
+        )
+
+        # Durée dépendante de la machine choisie :
+        # end = start + somme(durée_machine * machine_choisie)
+        model += (
+            end[task_id]
+            == start[task_id]
+            + lpSum(
+                machine_used[(task_id, machine)]
+                * task_durations[machine]
+                for machine in task["compatible_machines"]
+            )
         )
 
     # ========================================================
@@ -596,7 +684,9 @@ def optimize_schedule(tasks, time_limit=None, machine_unavailability=None):
 
             "duration":
                 round(
-                    float(task["duration"]),
+                    float(
+                        get_task_durations(task)[selected_machine]
+                    ),
                     2
                 ),
 

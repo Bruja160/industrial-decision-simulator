@@ -3,26 +3,9 @@ Convertit une instance benchmark Brandimarte au format JSON
 (github.com/SchedulingLab/fjsp-instances) vers les 3 fichiers CSV
 attendus par le projet (orders, machines, operations).
 
-Format source (JSON) :
-{
-  "machines": 6,
-  "jobs": [
-    [                                   # job 1
-      [ {"machine": 0, "processing": 5}, {"machine": 2, "processing": 4} ],
-      [ {"machine": 4, "processing": 3}, ... ],
-      ...
-    ],
-    [ ... ],                           # job 2
-    ...
-  ]
-}
-
-IMPORTANT - Limitation assumee (a mentionner dans ton README) :
-Le vrai format FJSP autorise une duree DIFFERENTE selon la machine choisie
-pour une operation. Ton optimizer.py actuel utilise UNE seule duree par
-operation, quelle que soit la machine. Ce script prend donc la MOYENNE
-des durees possibles comme duree nominale. C'est une simplification
-honnete a assumer, et une piste d'amelioration naturelle pour la suite.
+La colonne 'machine_durations' conserve la vraie durée par machine
+(format "M1:3|M3:4"). La colonne 'duration' garde la moyenne, pour
+rester compatible avec le MILP actuel.
 
 Usage :
     python convert_benchmark.py data/benchmark/mk01.json data/
@@ -59,7 +42,7 @@ def convert_to_csv(json_path, output_dir, instance_name="mk01"):
             writer.writerow([f"M{m + 1}", f"Machine_{m + 1}", 8])
 
     # ============================================================
-    # OPERATIONS.CSV + calcul des durees totales par job (pour deadline)
+    # OPERATIONS.CSV
     # ============================================================
 
     operations_path = output_dir / "operations.csv"
@@ -69,7 +52,7 @@ def convert_to_csv(json_path, output_dir, instance_name="mk01"):
         writer = csv.writer(f)
         writer.writerow([
             "operation_id", "product_id", "operation_type",
-            "duration", "compatible_machines"
+            "duration", "compatible_machines", "machine_durations"
         ])
 
         for job_index, operations in enumerate(jobs):
@@ -87,9 +70,14 @@ def convert_to_csv(json_path, output_dir, instance_name="mk01"):
                     f"M{o['machine'] + 1}" for o in options
                 )
 
+                machine_durations = "|".join(
+                    f"M{o['machine'] + 1}:{o['processing']}" for o in options
+                )
+
                 writer.writerow([
                     operation_id, product_id, operation_type,
-                    round(avg_duration, 3), compatible_machines
+                    round(avg_duration, 3), compatible_machines,
+                    machine_durations
                 ])
 
             job_total_durations.append(total_duration)
@@ -97,9 +85,7 @@ def convert_to_csv(json_path, output_dir, instance_name="mk01"):
     # ============================================================
     # ORDERS.CSV
     # ============================================================
-    # Le benchmark n'a pas de notion de deadline (son seul objectif est
-    # le makespan). On ajoute une deadline synthetique = 1.5x la duree
-    # totale du job, pour que le KPI "retard" reste significatif.
+    # Deadline synthétique = 1.5x la durée totale (moyenne) du job.
 
     orders_path = output_dir / "orders.csv"
 
