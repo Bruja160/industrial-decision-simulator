@@ -29,6 +29,8 @@ from src.optimizer.optimizer import (
     calculate_kpis,
 )
 
+from src.optimizer.genetic import optimize_schedule_ga
+
 from src.analysis.scenario_analysis import compare_scenarios
 
 
@@ -333,6 +335,9 @@ def load_benchmark_mk01():
                 "operation_type": f"Etape_{op_index + 1}",
                 "duration": round(avg_duration, 3),
                 "compatible_machines": "|".join(f"M{o['machine'] + 1}" for o in options),
+                "machine_durations": "|".join(
+                    f"M{o['machine'] + 1}:{o['processing']}" for o in options
+                ),
             })
 
         job_total_durations.append(total_duration)
@@ -415,6 +420,44 @@ def validate_uploaded_data(orders_df, machines_df, operations_df):
             f"operations.csv : machines référencées mais absentes de machines.csv : "
             f"{sorted(unknown_machines)}"
         )
+
+    # Colonne optionnelle machine_durations (format "M1:5|M2:4")
+    if "machine_durations" in operations_df.columns:
+
+        for _, row in operations_df.iterrows():
+
+            raw = row["machine_durations"]
+
+            if pd.isna(raw) or str(raw).strip() == "":
+                continue
+
+            parsed = {}
+
+            try:
+                for item in str(raw).split("|"):
+                    machine, separator, value_text = item.strip().partition(":")
+                    if not separator:
+                        raise ValueError("séparateur ':' manquant")
+                    parsed[machine.strip()] = float(value_text)
+            except ValueError:
+                errors.append(
+                    f"operations.csv : machine_durations mal formé pour "
+                    f"{row['operation_id']} (format attendu : M1:5|M2:4)"
+                )
+                continue
+
+            compatible = {m.strip() for m in str(row["compatible_machines"]).split("|")}
+
+            if set(parsed) != compatible:
+                errors.append(
+                    f"operations.csv : machine_durations de {row['operation_id']} "
+                    f"doit lister exactement les machines de compatible_machines"
+                )
+            elif any(v <= 0 for v in parsed.values()):
+                errors.append(
+                    f"operations.csv : machine_durations de {row['operation_id']} "
+                    f"contient une durée <= 0"
+                )
 
     return errors
 
@@ -590,6 +633,69 @@ st.sidebar.write(
 )
 
 st.sidebar.divider()
+st.sidebar.header("🧠 Méthode d'optimisation")
+
+solver_choice = st.sidebar.radio(
+    "Solveur",
+    ["MILP exact (CBC)", "Algorithme génétique (rapide)"],
+    help="MILP : optimum prouvé sur les petites instances, mais lent et instable "
+         "au-delà de ~50 tâches. Algorithme génétique : solution approchée de "
+         "bonne qualité en quelques secondes, même sur de grandes instances."
+)
+
+use_ga = solver_choice.startswith("Algorithme")
+
+ga_time_limit = 10
+ga_seed = 0
+
+if use_ga:
+    ga_time_limit = st.sidebar.slider(
+        "Temps de calcul par optimisation (secondes)",
+        min_value=2, max_value=60, value=10
+    )
+    ga_seed = int(st.sidebar.number_input(
+        "Graine aléatoire (reproductibilité)",
+        min_value=0, value=0, step=1,
+        help="La même graine redonne exactement le même résultat."
+    ))
+    st.sidebar.caption(
+        "Solution approchée de bonne qualité, sans preuve d'optimalité."
+    )
+else:
+    st.sidebar.caption(
+        "Limite de 120 s par optimisation. Au-delà de ~50 tâches, le statut "
+        "« Optimal » peut simplement signaler l'arrêt à la limite de temps."
+    )
+
+
+def solve_schedule(tasks, time_limit=None, machine_unavailability=None, seed=None):
+    """Optimise avec le solveur choisi dans la barre latérale."""
+
+    if use_ga:
+        return optimize_schedule_ga(
+            tasks,
+            time_limit=time_limit if time_limit is not None else ga_time_limit,
+            machine_unavailability=machine_unavailability,
+            seed=ga_seed if seed is None else seed,
+        )
+
+    return optimize_schedule(
+        tasks,
+        time_limit=time_limit,
+        machine_unavailability=machine_unavailability,
+    )
+
+
+def solver_signature():
+    """Identifie solveur + réglages, pour comparer à réglages identiques."""
+
+    if use_ga:
+        return ("GA", ga_time_limit, ga_seed)
+
+    return ("MILP",)
+
+
+st.sidebar.divider()
 st.sidebar.header("💰 Paramètres économiques")
 
 hourly_production_value = st.sidebar.number_input(
@@ -692,7 +798,9 @@ with tab_atelier:
             "**Colonnes attendues** — `orders.csv` : order_id, product_id, quantity, deadline · "
             "`machines.csv` : machine_id, machine_name · "
             "`operations.csv` : operation_id, product_id, operation_type, duration, compatible_machines "
-            "(format `M1|M2|M3` pour plusieurs machines compatibles)."
+            "(format `M1|M2|M3` pour plusieurs machines compatibles) · "
+            "colonne optionnelle `machine_durations` (format `M1:5|M2:4`) pour une "
+            "durée différente selon la machine."
         )
 
         if uploaded_orders and uploaded_machines and uploaded_operations:
@@ -827,7 +935,7 @@ with tab_situation:
 
         with st.spinner("Optimisation de la situation actuelle..."):
             baseline_tasks = create_tasks(orders, operations)
-            baseline_schedule = optimize_schedule(baseline_tasks)
+            baseline_schedule = solve_schedule(baseline_tasks)
 
         if baseline_schedule is None:
             st.error("Aucune solution trouvée pour la situation actuelle.")
@@ -837,6 +945,7 @@ with tab_situation:
 
         st.session_state["baseline_schedule"] = baseline_schedule
         st.session_state["baseline_kpis"] = baseline_kpis
+        st.session_state["baseline_solver"] = solver_signature()
 
         st.success("Optimisation de la situation actuelle terminée.")
 
@@ -873,6 +982,13 @@ with tab_scenario:
     section_header("02", "Scénario & résultats", "🎛️")
 
     st.write("Choisissez le type de décision industrielle à tester.")
+
+    if use_ga:
+        st.caption(
+            "ℹ️ Avec l'algorithme génétique, de petits écarts entre deux "
+            "optimisations peuvent venir du hasard de la recherche. Augmente le "
+            "temps de calcul pour des comparaisons plus fiables."
+        )
 
     scenario_type = st.radio(
         "Type de scénario",
@@ -1069,6 +1185,14 @@ with tab_scenario:
             st.warning("Vous devez d'abord optimiser la situation actuelle.")
             st.stop()
 
+        if st.session_state.get("baseline_solver") != solver_signature():
+            st.warning(
+                "Le solveur ou ses réglages ont changé depuis l'optimisation de "
+                "la situation actuelle. Relance-la (onglet « Situation actuelle ») "
+                "pour comparer à réglages identiques."
+            )
+            st.stop()
+
         if scenario_type == "Ajouter une machine compatible à une opération" and machine_to_add is None:
             st.warning("Aucune machine disponible à ajouter pour cette opération.")
             st.stop()
@@ -1140,7 +1264,7 @@ with tab_scenario:
         scenario_tasks = create_tasks(orders, scenario_operations)
 
         with st.spinner("Optimisation du scénario..."):
-            scenario_schedule = optimize_schedule(
+            scenario_schedule = solve_schedule(
                 scenario_tasks,
                 machine_unavailability=machine_unavailability,
             )
@@ -1284,7 +1408,12 @@ with tab_incertitude:
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        n_simulations = st.slider("Nombre de simulations", min_value=5, max_value=30, value=15)
+        n_simulations = st.slider(
+            "Nombre de simulations",
+            min_value=5,
+            max_value=200 if use_ga else 30,
+            value=50 if use_ga else 15,
+        )
 
     with col2:
         variation_pct = st.slider("Variation des durées (%)", min_value=5, max_value=30, value=15)
@@ -1298,10 +1427,12 @@ with tab_incertitude:
             help="Calcule la probabilité que le Makespan réel reste sous ce seuil."
         )
 
+    mc_time_limit = 3 if use_ga else 30
+
     st.caption(
-        f"⏱️ Chaque simulation est limitée à 30 secondes de calcul pour rester "
-        f"gérable ({n_simulations} simulations : jusqu'à "
-        f"{n_simulations * 30 // 60} min dans le pire des cas)."
+        f"⏱️ Chaque simulation est limitée à {mc_time_limit} secondes de calcul pour "
+        f"rester gérable ({n_simulations} simulations : jusqu'à "
+        f"{n_simulations * mc_time_limit // 60} min dans le pire des cas)."
     )
 
     if st.button("🎲 Lancer l'analyse Monte Carlo"):
@@ -1326,7 +1457,11 @@ with tab_incertitude:
             )
 
             tasks_mc = create_tasks(orders, randomized_operations)
-            schedule_mc = optimize_schedule(tasks_mc, time_limit=30)
+            schedule_mc = solve_schedule(
+                tasks_mc,
+                time_limit=mc_time_limit,
+                seed=ga_seed + i,
+            )
 
             if schedule_mc is not None:
                 makespans.append(float(schedule_mc["end"].max()))
