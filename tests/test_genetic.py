@@ -289,6 +289,99 @@ def test_ga_on_default_dataset_matches_project_format():
 
 
 # ============================================================
+# 7 bis. VERSION MEMETIQUE (GA + recherche tabou)
+# ============================================================
+
+def test_local_search_is_disabled_by_default():
+    problem = Problem(random_instance(0))
+
+    result = run_ga(problem, population_size=20, generations=10, seed=0)
+
+    assert result.local_search_calls == 0
+
+
+def test_memetic_gives_valid_schedules_and_never_worsens():
+    for seed in range(4):
+
+        tasks = random_instance(seed)
+        unavailability = {"M1": [(3.0, 6.0), (20.0, 24.0)], "M3": [(0.0, 4.0)]}
+        problem = Problem(tasks, unavailability)
+
+        result = run_ga(
+            problem, population_size=20, generations=15, seed=seed,
+            local_search_top=2, local_search_every=1,
+            local_search_iterations=8, local_search_patience=4,
+        )
+
+        assert result.local_search_calls > 0
+
+        history = result.history
+        assert all(b <= a + 1e-9 for a, b in zip(history, history[1:]))
+        assert abs(result.schedule["end"].max() - result.best_makespan) <= 0.011
+
+        # Le Makespan suivi pendant l'évolution = celui du chromosome final
+        assert abs(history[-1] - result.best_makespan) <= 1e-9
+
+        assert_valid_schedule(result.schedule, tasks, unavailability)
+
+
+def test_memetic_is_reproducible():
+    tasks = random_instance(3)
+    params = dict(
+        population_size=20, generations=12, seed=5,
+        local_search_top=2, local_search_every=2,
+    )
+
+    first = run_ga(Problem(tasks), **params)
+    second = run_ga(Problem(tasks), **params)
+
+    assert first.history == second.history
+    assert first.best_os == second.best_os
+    assert first.best_ms == second.best_ms
+    assert first.local_search_calls == second.local_search_calls
+
+
+def test_memetic_finds_hand_computed_optimum():
+    tasks = make_tasks([
+        ("O1", [{"M1": 3.0}, {"M2": 2.0}], 20),
+        ("O2", [{"M1": 2.0}, {"M2": 4.0}], 20),
+    ])
+
+    result = run_ga(
+        Problem(tasks), population_size=10, generations=10, seed=0,
+        local_search_top=1, local_search_every=1,
+    )
+
+    assert result.best_makespan == 8.0
+
+
+def test_local_search_improves_the_very_same_population():
+    """Avec une seule génération, la population avant recherche locale est
+    identique avec ou sans elle : la recherche tabou ne peut donc que
+    améliorer (jamais dégrader), et elle doit améliorer au moins une fois."""
+
+    pure_total = 0.0
+    memetic_total = 0.0
+
+    for seed in range(8):
+        problem = Problem(random_instance(seed))
+
+        pure = run_ga(problem, population_size=10, generations=1, seed=seed)
+        memetic = run_ga(
+            problem, population_size=10, generations=1, seed=seed,
+            local_search_top=2, local_search_every=1,
+            local_search_iterations=20, local_search_patience=10,
+        )
+
+        assert memetic.best_makespan <= pure.best_makespan + 1e-9
+
+        pure_total += pure.best_makespan
+        memetic_total += memetic.best_makespan
+
+    assert memetic_total < pure_total
+
+
+# ============================================================
 # 8. LE GA NE PEUT JAMAIS BATTRE L'OPTIMUM DU MILP
 # ============================================================
 
@@ -306,10 +399,17 @@ def test_ga_never_beats_milp_optimum():
 
     result = run_ga(Problem(tasks), population_size=60, generations=60, seed=0)
 
+    memetic = run_ga(
+        Problem(tasks), population_size=60, generations=60, seed=0,
+        local_search_top=2, local_search_every=2,
+    )
+
     print(
         f"MILP optimal : {milp_makespan:.2f} h | "
-        f"GA : {result.best_makespan:.2f} h "
+        f"GA : {result.best_makespan:.2f} h | "
+        f"GA + tabou : {memetic.best_makespan:.2f} h "
         f"({result.evaluations} évaluations, {result.elapsed:.2f} s)"
     )
 
     assert result.best_makespan >= milp_makespan - 0.02
+    assert memetic.best_makespan >= milp_makespan - 0.02

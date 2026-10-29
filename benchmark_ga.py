@@ -3,13 +3,21 @@ Lance l'algorithme génétique sur un dossier de 3 CSV (orders, machines,
 operations) avec plusieurs graines, et affiche un résumé.
 
 Usage :
-    python benchmark_ga.py <dossier> [temps_en_secondes] [nombre_de_graines] [meilleur_connu]
+    python benchmark_ga.py <dossier> [temps_en_secondes] [nombre_de_graines] [meilleur_connu] [options]
 
-Exemple (mk01, optimum connu = 40) :
+Options :
+    --compare          compare GA pur, GA + tabou léger et GA + tabou renforcé
+                       (mêmes graines, même temps pour chaque méthode)
+    --ls-top N         recherche tabou sur N individus par passage (GA mémétique)
+    --ls-every N       un passage toutes les N générations (défaut 5)
+    --ls-iterations N  itérations maximum de chaque recherche tabou (défaut 10)
+
+Exemples (mk01, optimum connu = 40) :
     python benchmark_ga.py data/benchmark_csv_test 10 5 40
+    python benchmark_ga.py data/benchmark_csv_test 10 20 40 --compare
 """
 
-import sys
+import argparse
 from pathlib import Path
 
 import pandas as pd
@@ -19,16 +27,78 @@ from src.optimizer.genetic import run_ga
 from src.optimizer.optimizer import create_tasks
 
 
+VARIANTS = {
+    "GA pur": dict(local_search_top=0),
+    "GA + tabou léger": dict(
+        local_search_top=1, local_search_every=5,
+        local_search_iterations=10, local_search_patience=5,
+    ),
+    "GA + tabou renforcé": dict(
+        local_search_top=3, local_search_every=10,
+        local_search_iterations=15, local_search_patience=6,
+    ),
+}
+
+
+def run_variant(problem, name, params, time_limit, n_seeds, best_known, verbose=True):
+    """Lance une méthode sur n_seeds graines. Renvoie la liste des Makespans."""
+
+    makespans = []
+
+    if verbose:
+        print()
+        print(f"--- {name} ---")
+
+    for seed in range(n_seeds):
+
+        result = run_ga(
+            problem, seed=seed, time_limit=time_limit, generations=100000, **params
+        )
+        makespans.append(result.best_makespan)
+
+        if verbose:
+            print(
+                f"graine {seed:2d} : Makespan {result.best_makespan:7.2f} h | "
+                f"{result.generations_run:5d} générations | "
+                f"{result.evaluations:7d} évaluations | "
+                f"{result.local_search_calls:3d} recherches tabou | "
+                f"{result.elapsed:5.1f} s",
+                flush=True,
+            )
+
+    return makespans
+
+
+def summarize(name, makespans, best_known):
+
+    mean = sum(makespans) / len(makespans)
+    line = (
+        f"{name:22s} meilleur {min(makespans):6.2f} | moyenne {mean:6.2f} | "
+        f"pire {max(makespans):6.2f}"
+    )
+
+    if best_known:
+        reached = sum(1 for m in makespans if m <= best_known + 1e-9)
+        gap = (mean - best_known) / best_known * 100
+        line += f" | écart moyenne {gap:+5.1f} % | optimum atteint {reached}/{len(makespans)}"
+
+    return line
+
+
 def main():
 
-    if len(sys.argv) < 2:
-        print(__doc__)
-        return
+    parser = argparse.ArgumentParser(description="Benchmark de l'algorithme génétique")
+    parser.add_argument("folder")
+    parser.add_argument("time_limit", nargs="?", type=float, default=10.0)
+    parser.add_argument("seeds", nargs="?", type=int, default=5)
+    parser.add_argument("best_known", nargs="?", type=float, default=None)
+    parser.add_argument("--compare", action="store_true")
+    parser.add_argument("--ls-top", type=int, default=0)
+    parser.add_argument("--ls-every", type=int, default=5)
+    parser.add_argument("--ls-iterations", type=int, default=10)
+    args = parser.parse_args()
 
-    folder = Path(sys.argv[1])
-    time_limit = float(sys.argv[2]) if len(sys.argv) > 2 else 10.0
-    n_seeds = int(sys.argv[3]) if len(sys.argv) > 3 else 5
-    best_known = float(sys.argv[4]) if len(sys.argv) > 4 else None
+    folder = Path(args.folder)
 
     orders = pd.read_csv(folder / "orders.csv")
     operations = pd.read_csv(folder / "operations.csv")
@@ -37,36 +107,47 @@ def main():
     problem = Problem(tasks)
 
     print()
-    print("=" * 60)
+    print("=" * 78)
     print(f"Instance : {folder}")
     print(f"{len(orders)} commandes, {len(tasks)} tâches")
-    print(f"Limite : {time_limit:g} s par graine, {n_seeds} graines")
-    print("=" * 60)
+    print(f"Limite : {args.time_limit:g} s par graine, {args.seeds} graines")
+    print("=" * 78)
 
-    makespans = []
+    if args.compare:
 
-    for seed in range(n_seeds):
+        results = {}
 
-        result = run_ga(problem, seed=seed, time_limit=time_limit, generations=100000)
-        makespans.append(result.best_makespan)
+        for name, params in VARIANTS.items():
+            results[name] = run_variant(
+                problem, name, params, args.time_limit, args.seeds, args.best_known
+            )
 
-        print(
-            f"graine {seed} : Makespan {result.best_makespan:7.2f} h | "
-            f"{result.generations_run:5d} générations | "
-            f"{result.evaluations:7d} évaluations | {result.elapsed:5.1f} s"
+        print()
+        print("=" * 78)
+        print("COMPARAISON (mêmes graines, même temps de calcul)")
+        print("=" * 78)
+
+        for name, makespans in results.items():
+            print(summarize(name, makespans, args.best_known))
+
+        print()
+        return
+
+    params = dict(local_search_top=args.ls_top)
+
+    if args.ls_top > 0:
+        params.update(
+            local_search_every=args.ls_every,
+            local_search_iterations=args.ls_iterations,
         )
 
-    print("-" * 60)
-    print(f"Meilleur : {min(makespans):.2f} h")
-    print(f"Moyenne  : {sum(makespans) / len(makespans):.2f} h")
-    print(f"Pire     : {max(makespans):.2f} h")
+    name = "GA mémétique" if args.ls_top > 0 else "GA pur"
+    makespans = run_variant(
+        problem, name, params, args.time_limit, args.seeds, args.best_known
+    )
 
-    if best_known:
-        gap = (min(makespans) - best_known) / best_known * 100
-        gap_mean = (sum(makespans) / len(makespans) - best_known) / best_known * 100
-        print(f"Optimum connu : {best_known:g} h")
-        print(f"Écart du meilleur : {gap:+.1f} %   |   écart de la moyenne : {gap_mean:+.1f} %")
-
+    print("-" * 78)
+    print(summarize(name, makespans, args.best_known))
     print()
 
 

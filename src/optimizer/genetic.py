@@ -22,6 +22,7 @@ import time
 from dataclasses import dataclass, field
 
 from src.optimizer.decoder import Problem, decode, random_chromosome, to_schedule
+from src.optimizer.local_search import tabu_search
 
 
 # ============================================================
@@ -31,12 +32,13 @@ from src.optimizer.decoder import Problem, decode, random_chromosome, to_schedul
 class Individual:
     """Un chromosome (OS, MS) et son Makespan."""
 
-    __slots__ = ("os", "ms", "makespan")
+    __slots__ = ("os", "ms", "makespan", "searched")
 
-    def __init__(self, os_vector, ms, makespan):
+    def __init__(self, os_vector, ms, makespan, searched=False):
         self.os = os_vector
         self.ms = ms
         self.makespan = makespan
+        self.searched = searched  # True si la recherche locale est déjà passée par là
 
 
 # ============================================================
@@ -199,6 +201,7 @@ class GAResult:
     elapsed: float = 0.0
     seed: int = 0
     stopped_by: str = "generations"   # "generations", "time" ou "stagnation"
+    local_search_calls: int = 0       # nombre de recherches tabou lancées (0 = GA pur)
 
 
 # ============================================================
@@ -216,6 +219,10 @@ def run_ga(
     seed=0,
     time_limit=None,
     stagnation_limit=None,
+    local_search_top=0,
+    local_search_every=5,
+    local_search_iterations=10,
+    local_search_patience=5,
 ):
     """
     Lance l'algorithme génétique sur un Problem (decoder.py).
@@ -223,6 +230,18 @@ def run_ga(
     time_limit       : arrêt après ce nombre de secondes (None = pas de limite)
     stagnation_limit : arrêt si le meilleur n'a pas progressé depuis ce
                        nombre de générations (None = jamais)
+
+    Version mémétique (GA + recherche tabou) :
+    local_search_top        : nombre d'individus améliorés par la recherche
+                              tabou à chaque passage (0 = GA pur, sans
+                              recherche locale)
+    local_search_every      : un passage toutes les N générations
+    local_search_iterations : itérations maximum de chaque recherche tabou
+    local_search_patience   : arrêt de la recherche tabou si elle ne
+                              progresse plus depuis N itérations
+
+    La recherche tabou s'applique aux meilleurs individus pas encore
+    améliorés ; le résultat remplace l'individu (apprentissage lamarckien).
     """
 
     rng = random.Random(seed)
@@ -263,6 +282,7 @@ def run_ga(
     stagnation = 0
     stopped_by = "generations"
     generations_run = 0
+    local_search_calls = 0
 
     # --- Générations ---
     for _ in range(generations):
@@ -276,7 +296,7 @@ def run_ga(
             break
 
         next_population = [
-            Individual(list(ind.os), dict(ind.ms), ind.makespan)
+            Individual(list(ind.os), dict(ind.ms), ind.makespan, ind.searched)
             for ind in population[:n_elite]
         ]
 
@@ -320,6 +340,34 @@ def run_ga(
         population = sorted(next_population, key=lambda ind: ind.makespan)
         generations_run += 1
 
+        # --- Recherche locale (tabou) sur les meilleurs individus ---
+        if local_search_top > 0 and generations_run % local_search_every == 0:
+
+            candidates = [ind for ind in population if not ind.searched]
+            candidates = candidates[:local_search_top]
+
+            for ind in candidates:
+
+                remaining = None
+
+                if time_limit is not None:
+                    remaining = time_limit - (time.perf_counter() - started)
+                    if remaining <= 0:
+                        break
+
+                new_os, new_ms, new_makespan, _ = tabu_search(
+                    problem, ind.os, ind.ms, rng,
+                    max_iterations=local_search_iterations,
+                    patience=local_search_patience,
+                    time_limit=remaining,
+                )
+
+                ind.os, ind.ms, ind.makespan = new_os, new_ms, new_makespan
+                ind.searched = True
+                local_search_calls += 1
+
+            population.sort(key=lambda ind: ind.makespan)
+
         if population[0].makespan < best_so_far - 1e-9:
             best_so_far = population[0].makespan
             stagnation = 0
@@ -342,6 +390,7 @@ def run_ga(
         elapsed=time.perf_counter() - started,
         seed=seed,
         stopped_by=stopped_by,
+        local_search_calls=local_search_calls,
     )
 
 
