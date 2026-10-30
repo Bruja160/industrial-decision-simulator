@@ -259,11 +259,28 @@ def describe_change(value, unit="%"):
         return f"reste quasiment inchangé"
 
 
-def generate_decision_sentence(comparison, scenario_label):
+def describe_increase(value, unit="points"):
+    """Variation d'un indicateur où une VALEUR POSITIVE = une hausse
+    (ex : taux de respect des délais, scénario moins baseline)."""
+    if value > 0.05:
+        return f"augmente de {value:.1f} {unit}"
+    elif value < -0.05:
+        return f"diminue de {abs(value):.1f} {unit}"
+    else:
+        return "reste quasiment inchangé"
+
+
+def generate_decision_sentence(comparison, scenario_label, on_time_change=None):
+
+    # Makespan et retard : gain positif = diminution (describe_change).
+    # Respect des délais : variation positive = augmentation (describe_increase),
+    # calculée directement à partir des KPI quand elle est fournie.
+    if on_time_change is None:
+        on_time_change = comparison["on_time_change"]
 
     makespan_txt = describe_change(comparison["makespan_gain"])
     delay_txt = describe_change(comparison["delay_gain"])
-    on_time_txt = describe_change(comparison["on_time_change"], unit="points")
+    on_time_txt = describe_increase(on_time_change, unit="points")
 
     recommendation = comparison["recommendation"]
 
@@ -538,7 +555,8 @@ def compute_economic_analysis(baseline_kpis, scenario_kpis, cost, hourly_value, 
     )
 
     net_gain = financial_gain - cost
-    roi_pct = (financial_gain / cost * 100) if cost > 0 else None
+    # ROI = (gain financier - investissement) / investissement
+    roi_pct = (net_gain / cost * 100) if cost > 0 else None
 
     return {
         "makespan_gain_hours": makespan_gain_hours,
@@ -1333,7 +1351,7 @@ with tab_scenario:
         with col3:
             st.metric(
                 "Respect des délais", f"{scenario_kpis['on_time_rate']:.2f} %",
-                delta=f"{comparison['on_time_change']:.2f} points"
+                delta=f"{scenario_kpis['on_time_rate'] - baseline_kpis['on_time_rate']:.2f} points"
             )
 
         col1, col2 = st.columns(2)
@@ -1563,7 +1581,11 @@ with tab_decision:
         else:
             st.error(f"❌ {recommendation}")
 
-        st.markdown(generate_decision_sentence(comparison, scenario_label))
+        on_time_delta = scenario_kpis["on_time_rate"] - baseline_kpis["on_time_rate"]
+
+        st.markdown(
+            generate_decision_sentence(comparison, scenario_label, on_time_delta)
+        )
 
         st.subheader("🎯 Score de décision multicritère")
 
@@ -1606,7 +1628,12 @@ with tab_decision:
         e2.metric("Gain financier estimé", f"{economics['financial_gain']:,.0f} DH")
 
         if economics["roi_pct"] is not None:
-            e3.metric("ROI", f"{economics['roi_pct']:+.0f} %")
+            e3.metric(
+                "ROI",
+                f"{economics['roi_pct']:+.0f} %",
+                help="ROI = (gain financier estimé − investissement) / investissement. "
+                     "Négatif : le gain ne couvre pas l'investissement.",
+            )
         else:
             e3.metric("ROI", "—")
 
@@ -1658,7 +1685,9 @@ with tab_decision:
             f"Scénario testé : {scenario_label}",
             f"Décision : {recommendation}",
             "",
-            generate_decision_sentence(comparison, scenario_label).replace("**", ""),
+            generate_decision_sentence(
+                comparison, scenario_label, on_time_delta
+            ).replace("**", ""),
             "",
             "--- Comparaison des performances ---",
             f"Makespan       : {baseline_kpis['makespan']:.2f} h -> {scenario_kpis['makespan']:.2f} h "
@@ -1666,7 +1695,7 @@ with tab_decision:
             f"Retard total   : {baseline_kpis['total_delay']:.2f} h -> {scenario_kpis['total_delay']:.2f} h "
             f"({comparison['delay_gain']:+.1f} %)",
             f"Respect délais : {baseline_kpis['on_time_rate']:.2f} % -> {scenario_kpis['on_time_rate']:.2f} % "
-            f"({comparison['on_time_change']:+.1f} points)",
+            f"({on_time_delta:+.1f} points)",
             f"Goulot actuel  : {baseline_kpis['bottleneck']}",
             f"Goulot scénario: {scenario_kpis['bottleneck']}",
             "",
