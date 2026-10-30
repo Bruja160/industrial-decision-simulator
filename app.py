@@ -246,6 +246,67 @@ def get_bottleneck_utilization(kpis):
 
 
 # ============================================================
+# UTILITAIRE : STATUT DE LA RÉSOLUTION (optimum prouvé ou non)
+# ============================================================
+
+def solver_status_message(schedule, signature):
+    """
+    Renvoie (niveau, texte) décrivant honnêtement comment le planning a été
+    obtenu. niveau : "success", "warning" ou "info".
+    signature : valeur de solver_signature() au moment de l'optimisation.
+    """
+
+    if not signature:
+        return None
+
+    if signature[0] == "GA":
+        method = "algorithme génétique mémétique" if len(signature) > 3 and signature[3] \
+            else "algorithme génétique"
+        return (
+            "info",
+            f"Solution approchée par {method} (graine {signature[2]}, "
+            f"{signature[1]} s de calcul) : optimalité non prouvée."
+        )
+
+    attrs = getattr(schedule, "attrs", {}) or {}
+
+    if "proved_optimal" not in attrs:
+        return None
+
+    if attrs["proved_optimal"]:
+        return (
+            "success",
+            f"Optimum prouvé par le MILP (résolu en {attrs['solve_time']:.1f} s)."
+        )
+
+    return (
+        "warning",
+        f"Le MILP s'est arrêté à la limite de {attrs['time_limit']:g} s : c'est la "
+        f"meilleure solution trouvée, mais son optimalité n'est PAS prouvée. Sur "
+        f"cette taille d'instance, l'algorithme génétique peut donner de meilleurs "
+        f"résultats."
+    )
+
+
+def show_solver_status(schedule, signature):
+    """Affiche le message de statut de la résolution."""
+
+    message = solver_status_message(schedule, signature)
+
+    if message is None:
+        return
+
+    level, text = message
+
+    if level == "success":
+        st.success(text, icon="✅")
+    elif level == "warning":
+        st.warning(text, icon="⚠️")
+    else:
+        st.caption(f"ℹ️ {text}")
+
+
+# ============================================================
 # UTILITAIRE : PHRASE DE DÉCISION EN LANGAGE HUMAIN
 # ============================================================
 
@@ -1016,6 +1077,11 @@ with tab_situation:
 
         st.write(f"**Goulot actuel :** {baseline_kpis['bottleneck']}")
 
+        show_solver_status(
+            st.session_state.get("baseline_schedule"),
+            st.session_state.get("baseline_solver"),
+        )
+
 
 
 with tab_scenario:
@@ -1361,6 +1427,11 @@ with tab_scenario:
 
         with col2:
             st.metric("Commandes en retard - scénario", scenario_kpis["late_orders"])
+
+        show_solver_status(
+            st.session_state.get("scenario_schedule"),
+            st.session_state.get("baseline_solver"),
+        )
 
         st.subheader("🔴 Analyse du goulot")
 

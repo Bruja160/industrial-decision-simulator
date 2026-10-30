@@ -1,3 +1,4 @@
+import time
 from pathlib import Path
 
 import pandas as pd
@@ -83,6 +84,20 @@ def load_data():
     operations = pd.read_csv(OPERATIONS_FILE)
 
     return orders, machines, operations
+
+
+# ============================================================
+# STATUT DU SOLVEUR : OPTIMUM PROUVE OU LIMITE DE TEMPS ?
+# ============================================================
+
+def solver_proved_optimal(status_name, solve_time, time_limit):
+    """
+    PuLP renvoie le statut "Optimal" dès qu'une solution a été trouvée, même
+    si CBC s'est simplement arrêté à la limite de temps. L'optimalité n'est
+    donc PROUVEE que si le solveur a terminé nettement avant cette limite.
+    """
+
+    return status_name == "Optimal" and solve_time < 0.95 * time_limit
 
 
 # ============================================================
@@ -565,9 +580,13 @@ def optimize_schedule(tasks, time_limit=None, machine_unavailability=None):
         gapRel=0.0  # précision exacte : essentiel pour la fiabilité des comparaisons de scénarios
     )
 
+    solve_started = time.perf_counter()
+
     status = model.solve(
         solver
     )
+
+    solve_time = time.perf_counter() - solve_started
 
     print()
     print("=== RESULTAT ===")
@@ -577,6 +596,18 @@ def optimize_schedule(tasks, time_limit=None, machine_unavailability=None):
     print(
         "Statut :",
         status_name
+    )
+
+    proved_optimal = solver_proved_optimal(
+        status_name,
+        solve_time,
+        effective_time_limit
+    )
+
+    print(
+        "Optimalité prouvée :",
+        "oui" if proved_optimal else
+        "NON (limite de temps atteinte : meilleure solution trouvée)"
     )
 
     if status_name not in [
@@ -694,9 +725,17 @@ def optimize_schedule(tasks, time_limit=None, machine_unavailability=None):
                 task["deadline"],
         })
 
-    return pd.DataFrame(
+    schedule = pd.DataFrame(
         results
     )
+
+    # Informations sur la résolution, lues par l'interface
+    schedule.attrs["solver"] = "MILP"
+    schedule.attrs["proved_optimal"] = proved_optimal
+    schedule.attrs["solve_time"] = solve_time
+    schedule.attrs["time_limit"] = effective_time_limit
+
+    return schedule
 
 
 # ============================================================
