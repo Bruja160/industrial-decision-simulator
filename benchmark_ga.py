@@ -13,8 +13,8 @@ Options :
     --ls-iterations N  itérations maximum de chaque recherche tabou (défaut 10)
 
 Exemples (mk01, optimum connu = 40) :
-    python benchmark_ga.py data/benchmark_csv_test 10 5 40
-    python benchmark_ga.py data/benchmark_csv_test 10 20 40 --compare
+    python benchmark_ga.py data/benchmark_csv 10 5 40
+    python benchmark_ga.py data/benchmark_csv 10 20 40 --compare
 """
 
 import argparse
