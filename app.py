@@ -1021,13 +1021,13 @@ with tab_atelier:
         st.metric("Produits", operations["product_id"].nunique())
 
     with st.expander("Voir les commandes"):
-        st.dataframe(orders, use_container_width=True)
+        st.dataframe(orders, width="stretch")
 
     with st.expander("Voir les machines"):
-        st.dataframe(machines, use_container_width=True)
+        st.dataframe(machines, width="stretch")
 
     with st.expander("Voir les opérations"):
-        st.dataframe(operations, use_container_width=True)
+        st.dataframe(operations, width="stretch")
 
 with tab_situation:
 
@@ -1454,7 +1454,7 @@ with tab_scenario:
         st.subheader("📋 Tableau comparatif")
 
         comparison_table = comparison["comparison"].copy()
-        st.dataframe(comparison_table, use_container_width=True)
+        st.dataframe(comparison_table, width="stretch")
 
         st.subheader("📅 Planning comparé (Gantt)")
 
@@ -1466,7 +1466,7 @@ with tab_scenario:
                     st.session_state["baseline_schedule"],
                     "Situation actuelle"
                 ),
-                use_container_width=True,
+                width="stretch",
             )
 
         with col_gantt2:
@@ -1475,14 +1475,14 @@ with tab_scenario:
                     st.session_state["scenario_schedule"],
                     "Scénario"
                 ),
-                use_container_width=True,
+                width="stretch",
             )
 
         with st.expander("Voir le planning optimisé du scénario (données brutes)"):
             scenario_schedule = st.session_state["scenario_schedule"]
             st.dataframe(
                 scenario_schedule.sort_values(["machine", "start"]),
-                use_container_width=True
+                width="stretch"
             )
 
         st.subheader("⬇️ Exporter les plannings")
