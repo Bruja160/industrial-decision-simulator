@@ -717,6 +717,7 @@ st.sidebar.header("🧠 Méthode d'optimisation")
 solver_choice = st.sidebar.radio(
     "Solveur",
     ["MILP exact (CBC)", "Algorithme génétique (rapide)"],
+    index=1,  # l'algorithme génétique est le solveur par défaut
     help="MILP : optimum prouvé sur les petites instances, mais lent et instable "
          "au-delà de ~50 tâches. Algorithme génétique : solution approchée de "
          "bonne qualité en quelques secondes, même sur de grandes instances."
